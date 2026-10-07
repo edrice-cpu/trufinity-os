@@ -3,113 +3,181 @@ import { db } from '../../../database';
 import { env } from '../../../config/env';
 import type { DetectedAlertFinding, DetectionWindow } from '../detect.types';
 
-const QBO_DIMENSION = 'QUICKBOOKS_TOTAL';
-const SERVICETITAN_DIMENSION = 'SERVICETITAN_TOTAL';
+const BRACKETS = [30, 60, 90];
+const MAX_LISTED_INVOICES = 20;
 const ST_INVOICE_ACTIVE = `COALESCE((payload->>'active')::boolean, true) = true`;
 
-interface CohortCounts {
-  total: number;
-  overdue: number;
-  overdueBalance: number;
+type Source = 'QuickBooks' | 'ServiceTitan';
+
+interface BracketCrossing {
+  source: Source;
+  bracket: number;
+  crossedOn: Date;
+  invoiceId: string;
+  reference: string | null;
+  customerName: string | null;
+  balance: number;
 }
 
-// Both unified_invoices (QuickBooks) and raw_st_invoices (ServiceTitan) only
-// hold the invoice's CURRENT balance/status - there's no historical snapshot
-// of what balance looked like 4 weeks ago. So instead of comparing a point-
-// in-time AR total, this buckets invoices by their issue date into the same
-// current-window / baseline-window cohorts the D-series rules use, and asks "of the
-// invoices issued in this cohort, what share are now overdue and still
-// unpaid (as observed right now)?" - a valid, comparable collection-health
-// metric that doesn't require snapshot history.
-async function qboCohort(database: Knex, start: Date, end: Date, now: Date): Promise<CohortCounts> {
-  const row: { total: string; overdue: string; overdue_balance: string } = await database('unified_invoices')
-    .andWhere('invoice_date', '>=', start)
-    .andWhere('invoice_date', '<', end)
-    .select(
-      database.raw('count(*) as total'),
-      database.raw("count(*) filter (where balance > 0 and due_date < ?) as overdue", [now]),
-      database.raw("coalesce(sum(balance) filter (where balance > 0 and due_date < ?), 0) as overdue_balance", [now]),
-    )
-    .first();
-  return { total: Number(row.total), overdue: Number(row.overdue), overdueBalance: Number(row.overdue_balance) };
+// Dates come back as UTC midnight timestamps (not bare DATEs, which node-pg
+// turns into local-midnight Dates that shift a day in non-UTC timezones).
+// An open invoice "crosses" bracket N on the day it becomes N days past due:
+// due date + N (invoice date when there is no due date). Only invoices that
+// still carry a balance today count - one paid before it aged doesn't.
+async function qboCrossings(database: Knex, start: Date, end: Date): Promise<BracketCrossing[]> {
+  const result = await database.raw<{ rows: { bracket: number; crossed_on: Date; invoice_id: string; reference: string | null; customer_name: string | null; balance: string }[] }>(`
+    SELECT b.bracket,
+           ((COALESCE(i.due_date, i.invoice_date) + b.bracket)::timestamp AT TIME ZONE 'UTC') AS crossed_on,
+           i.id AS invoice_id,
+           i.source_specific_data->'quickbooks'->>'DocNumber' AS reference,
+           c.name AS customer_name,
+           i.balance
+    FROM unified_invoices i
+    CROSS JOIN unnest(?::int[]) AS b(bracket)
+    LEFT JOIN unified_customers c ON c.id = i.unified_customer_id
+    WHERE i.balance > 0
+      AND COALESCE(i.due_date, i.invoice_date) + b.bracket >= ?
+      AND COALESCE(i.due_date, i.invoice_date) + b.bracket < ?`, [BRACKETS, start, end]);
+  return result.rows.map((row) => ({
+    source: 'QuickBooks' as const,
+    bracket: Number(row.bracket),
+    crossedOn: new Date(row.crossed_on),
+    invoiceId: row.invoice_id,
+    reference: row.reference,
+    customerName: row.customer_name,
+    balance: Number(row.balance),
+  }));
 }
 
-async function servicetitanCohort(database: Knex, start: Date, end: Date, now: Date): Promise<CohortCounts> {
-  const row: { total: string; overdue: string; overdue_balance: string } = await database('raw_st_invoices')
-    .where('is_latest', true)
-    .andWhereRaw(ST_INVOICE_ACTIVE)
-    .andWhereRaw("(payload->>'invoiceDate')::date >= ?", [start])
-    .andWhereRaw("(payload->>'invoiceDate')::date < ?", [end])
-    .select(
-      database.raw('count(*) as total'),
-      database.raw("count(*) filter (where (payload->>'balance')::numeric > 0 and (payload->>'dueDate')::date < ?) as overdue", [now]),
-      database.raw("coalesce(sum((payload->>'balance')::numeric) filter (where (payload->>'balance')::numeric > 0 and (payload->>'dueDate')::date < ?), 0) as overdue_balance", [now]),
-    )
-    .first();
-  return { total: Number(row.total), overdue: Number(row.overdue), overdueBalance: Number(row.overdue_balance) };
+async function serviceTitanCrossings(database: Knex, start: Date, end: Date): Promise<BracketCrossing[]> {
+  const result = await database.raw<{ rows: { bracket: number; crossed_on: Date; invoice_id: string; reference: string | null; customer_name: string | null; balance: string }[] }>(`
+    SELECT b.bracket,
+           ((COALESCE((payload->>'dueDate')::date, (payload->>'invoiceDate')::date) + b.bracket)::timestamp AT TIME ZONE 'UTC') AS crossed_on,
+           source_id AS invoice_id,
+           payload->>'referenceNumber' AS reference,
+           payload->'customer'->>'name' AS customer_name,
+           (payload->>'balance')::numeric AS balance
+    FROM raw_st_invoices
+    CROSS JOIN unnest(?::int[]) AS b(bracket)
+    WHERE is_latest = true
+      AND ${ST_INVOICE_ACTIVE}
+      AND (payload->>'balance')::numeric > 0
+      AND COALESCE((payload->>'dueDate')::date, (payload->>'invoiceDate')::date) + b.bracket >= ?
+      AND COALESCE((payload->>'dueDate')::date, (payload->>'invoiceDate')::date) + b.bracket < ?`, [BRACKETS, start, end]);
+  return result.rows.map((row) => ({
+    source: 'ServiceTitan' as const,
+    bracket: Number(row.bracket),
+    crossedOn: new Date(row.crossed_on),
+    invoiceId: row.invoice_id,
+    reference: row.reference,
+    customerName: row.customer_name,
+    balance: Number(row.balance),
+  }));
 }
 
-function rate(counts: CohortCounts): number | null {
-  return counts.total > 0 ? counts.overdue / counts.total : null;
+// One finding per source + bracket + crossing day. period_start is that day,
+// so the daily Detect run (whose trailing window overlaps the previous day's)
+// updates the same rows instead of re-raising yesterday's crossings.
+function crossingFindings(crossings: BracketCrossing[], window: DetectionWindow): DetectedAlertFinding[] {
+  const groups = new Map<string, BracketCrossing[]>();
+  for (const crossing of crossings) {
+    const key = `${crossing.source}|${crossing.bracket}|${crossing.crossedOn.toISOString()}`;
+    groups.set(key, [...(groups.get(key) ?? []), crossing]);
+  }
+
+  return [...groups.values()].map((group) => {
+    const { source, bracket, crossedOn } = group[0];
+    const sorted = [...group].sort((a, b) => b.balance - a.balance || a.invoiceId.localeCompare(b.invoiceId));
+    const totalBalance = group.reduce((sum, crossing) => sum + crossing.balance, 0);
+    return {
+      ruleCode: 'F-04',
+      dimension: `${source} - crossed ${bracket} days past due`,
+      periodStart: crossedOn,
+      periodEnd: window.periodEnd,
+      baselineStart: null,
+      baselineEnd: null,
+      metricValue: totalBalance,
+      baselineValue: null,
+      details: {
+        trigger: 'BRACKET_CROSSING',
+        source,
+        bracketDays: bracket,
+        crossedOn: crossedOn.toISOString().slice(0, 10),
+        invoiceCount: group.length,
+        totalBalance,
+        invoices: sorted.slice(0, MAX_LISTED_INVOICES).map((crossing) => ({
+          invoiceId: crossing.invoiceId,
+          reference: crossing.reference,
+          customerName: crossing.customerName,
+          balance: crossing.balance,
+        })),
+      },
+    };
+  });
 }
 
-function buildFinding(
-  dimension: string,
-  window: DetectionWindow,
-  current: CohortCounts,
-  baseline: CohortCounts,
-): DetectedAlertFinding | null {
-  if (current.total < env.DETECT_F04_AR_MIN_SAMPLE || baseline.total < env.DETECT_F04_AR_MIN_SAMPLE) return null;
+// QuickBooks AR as it stood at `asOf`: everything invoiced before then, less
+// payments dated before then that were applied to those invoices. Rebuilt
+// from history because unified_invoices only holds today's balance. Credit
+// memos applied against invoices aren't in unified_payment_applications, so
+// this slightly overstates AR - the same way at both points being compared.
+async function qboArAsOf(database: Knex, asOf: Date): Promise<number> {
+  const result = await database.raw<{ rows: { ar: string }[] }>(`
+    SELECT
+      (SELECT COALESCE(SUM(total_amount), 0) FROM unified_invoices WHERE invoice_date < ?)
+      -
+      (SELECT COALESCE(SUM(a.applied_amount), 0)
+         FROM unified_payment_applications a
+         JOIN unified_payments p ON p.id = a.payment_id
+         JOIN unified_invoices i ON i.id = a.invoice_id
+        WHERE p.payment_date < ? AND i.invoice_date < ?) AS ar`, [asOf, asOf, asOf]);
+  return Number(result.rows[0].ar);
+}
 
-  const currentRate = rate(current);
-  const baselineRate = rate(baseline);
-  if (currentRate === null || baselineRate === null) return null;
+async function arGrowthFinding(database: Knex, window: DetectionWindow): Promise<DetectedAlertFinding | null> {
+  const [arAtStart, arAtEnd] = await Promise.all([
+    qboArAsOf(database, window.periodStart),
+    qboArAsOf(database, window.periodEnd),
+  ]);
+  if (arAtStart <= 0) return null;
 
-  const increasePoints = (currentRate - baselineRate) * 100;
-  if (increasePoints < env.DETECT_F04_AR_OVERDUE_RATE_INCREASE_THRESHOLD_POINTS) return null;
+  const growthAmount = arAtEnd - arAtStart;
+  const growthPercent = (growthAmount / arAtStart) * 100;
+  if (growthPercent < env.DETECT_F04_AR_GROWTH_THRESHOLD_PERCENT) return null;
 
   return {
     ruleCode: 'F-04',
-    dimension,
+    dimension: 'QuickBooks - total AR growth',
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    baselineStart: window.baselineStart,
-    baselineEnd: window.baselineEnd,
-    metricValue: currentRate,
-    baselineValue: baselineRate,
+    baselineStart: null,
+    baselineEnd: null,
+    metricValue: arAtEnd,
+    baselineValue: arAtStart,
     details: {
-      currentOverdueInvoices: current.overdue,
-      currentTotalInvoices: current.total,
-      currentOverdueBalance: current.overdueBalance,
-      baselineOverdueInvoices: baseline.overdue,
-      baselineTotalInvoices: baseline.total,
-      baselineOverdueBalance: baseline.overdueBalance,
-      increasePoints,
-      thresholdPoints: env.DETECT_F04_AR_OVERDUE_RATE_INCREASE_THRESHOLD_POINTS,
+      trigger: 'AR_GROWTH',
+      source: 'QuickBooks',
+      arAtPeriodStart: arAtStart,
+      arAtPeriodEnd: arAtEnd,
+      growthAmount,
+      growthPercent,
+      thresholdPercent: env.DETECT_F04_AR_GROWTH_THRESHOLD_PERCENT,
     },
   };
 }
 
-// F-04: flags a rise in the share of recently-issued invoices that are now
-// overdue and unpaid, vs the trailing 4-week cohort average - evaluated
-// separately for QuickBooks (unified_invoices) and ServiceTitan
-// (raw_st_invoices), since they are not yet merged into one AR ledger.
+// F-04 (AMBER): AR aging deterioration - any balance crossing a 30 / 60 /
+// 90-day bracket, or total AR growth beyond threshold (SPEC-BI-001 Section
+// 5.1). Bracket crossings are checked in both QuickBooks (unified_invoices)
+// and ServiceTitan (raw_st_invoices), since they are not merged into one AR
+// ledger yet; AR growth is QuickBooks only (the financial truth, and the one
+// with payment history to rebuild a prior-date balance from).
 export async function evaluateArAgingSpike(window: DetectionWindow, database: Knex = db): Promise<DetectedAlertFinding[]> {
-  const now = window.periodEnd;
-  const [qboCurrent, qboBaseline, stCurrent, stBaseline] = await Promise.all([
-    qboCohort(database, window.periodStart, window.periodEnd, now),
-    qboCohort(database, window.baselineStart, window.baselineEnd, now),
-    servicetitanCohort(database, window.periodStart, window.periodEnd, now),
-    servicetitanCohort(database, window.baselineStart, window.baselineEnd, now),
+  const [qbo, st, growth] = await Promise.all([
+    qboCrossings(database, window.periodStart, window.periodEnd),
+    serviceTitanCrossings(database, window.periodStart, window.periodEnd),
+    arGrowthFinding(database, window),
   ]);
 
-  const findings: DetectedAlertFinding[] = [];
-
-  const qboFinding = buildFinding(QBO_DIMENSION, window, qboCurrent, qboBaseline);
-  if (qboFinding) findings.push(qboFinding);
-
-  const stFinding = buildFinding(SERVICETITAN_DIMENSION, window, stCurrent, stBaseline);
-  if (stFinding) findings.push(stFinding);
-
-  return findings;
+  return [...crossingFindings([...qbo, ...st], window), ...(growth ? [growth] : [])];
 }

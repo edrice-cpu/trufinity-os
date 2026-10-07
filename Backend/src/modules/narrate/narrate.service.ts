@@ -32,13 +32,17 @@ export class NarrativeValidationError extends Error {
 }
 
 const RULE_DESCRIPTIONS: Record<string, string> = {
-  'D-01': 'Tenant-wide call booking rate has declined compared to the trailing 4-week average.',
+  'D-01': 'The Lace AI booking rate over the last 7 days is below the configured floor, company-wide or for one CSR.',
   'D-06': 'An objection category mentioned on calls has spiked compared to its trailing 4-week average.',
-  'F-04': 'The share of recently-issued invoices that are now overdue and unpaid has risen compared to the trailing 4-week cohort average.',
-  'F-04c': "A single customer's outstanding receivable balance makes up an outsized share of total outstanding accounts receivable.",
-  'F-03': 'The aggregate discount rate on recently-issued QuickBooks invoices has risen compared to the trailing 4-week average.',
-  'F-04d': 'The total dollar amount of QuickBooks credit memos issued in the current week has spiked compared to the trailing 4-week weekly average.',
+  'F-04': 'Open receivables crossed a 30, 60 or 90-day past-due bracket, or total accounts receivable grew beyond the configured threshold over the last 7 days.',
+  'F-04c': 'A single customer owes more than the configured balance threshold, or the top five customer balances make up more than the configured share of total accounts receivable.',
+  'F-03': 'Discounts as a percentage of gross revenue on this week\'s QuickBooks invoices exceed the configured threshold.',
+  'F-04d': 'A credit memo, adjustment invoice, or invoice reduction at or above the configured amount was issued.',
   'F-05': "ServiceTitan's and QuickBooks' recorded revenue for the current week's invoices diverge by more than the configured threshold.",
+  'O-02': "A department's or technician's callback rate (recall and warranty jobs) has risen above its own trailing 4-week rate.",
+  'O-05': "A technician's average ticket on jobs completed this week is outside the configured band around the rest of the team's average.",
+  'O-06': 'A job was completed in the field but has still not been invoiced after the configured number of days.',
+  'O-07': 'A new job was booked at the same address (on the same equipment where recorded) within the configured number of days after another job there was completed.',
 };
 
 // Percentage-rate rules whose metric/baseline values are stored as fractions
@@ -46,7 +50,7 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 // means the model copies a number we already computed - it never does the
 // fraction-to-percent arithmetic itself (SPEC-BI-001 Section 9: the model
 // performs no arithmetic).
-const PERCENTAGE_RULES = new Set(['D-01', 'D-06', 'F-04', 'F-04c', 'F-03', 'F-05']);
+const PERCENTAGE_RULES = new Set(['D-01', 'D-06', 'F-03', 'F-05', 'O-02']);
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;

@@ -36,10 +36,10 @@ describe('evaluateBookingRateDecline (D-01)', () => {
     await db.destroy();
   });
 
-  it('flags a tenant-wide decline that meets the threshold, with the current and baseline rates as metric/baseline values', async () => {
+  it('flags a tenant-wide booking rate below the floor, carrying the 4-week rate as context', async () => {
     const baselineDay = new Date('2099-05-20T00:00:00.000Z');
     const currentDay = new Date('2099-06-12T00:00:00.000Z');
-    // Baseline: 8/10 booked (80%). Current: 5/10 booked (50%) - a 30-point drop.
+    // Current: 5/10 booked (50%) - below the default 60% floor. Baseline 80% is context only.
     await db('canonical_lace_calls').insert([
       ...Array.from({ length: 8 }, () => callRow(baselineDay, true)),
       ...Array.from({ length: 2 }, () => callRow(baselineDay, false)),
@@ -51,16 +51,29 @@ describe('evaluateBookingRateDecline (D-01)', () => {
 
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ ruleCode: 'D-01', dimension: 'TENANT_TOTAL', metricValue: 0.5, baselineValue: 0.8 });
-    expect((findings[0].details as { dropPoints: number }).dropPoints).toBeCloseTo(30);
+    expect(findings[0].details).toMatchObject({ floorPercent: 60 });
   });
 
-  it('does not flag a decline below the configured threshold', async () => {
+  it('flags a rate below the floor even without a decline or any baseline data', async () => {
+    const currentDay = new Date('2099-06-12T00:00:00.000Z');
+    // 4/10 = 40%, no baseline calls at all - the spec's trigger is the floor, not a drop.
+    await db('canonical_lace_calls').insert([
+      ...Array.from({ length: 4 }, () => callRow(currentDay, true)),
+      ...Array.from({ length: 6 }, () => callRow(currentDay, false)),
+    ]);
+
+    const findings = await evaluateBookingRateDecline(WINDOW);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ metricValue: 0.4, baselineValue: null, baselineStart: null });
+  });
+
+  it('does not flag a rate at or above the floor, however far it dropped', async () => {
     const baselineDay = new Date('2099-05-20T00:00:00.000Z');
     const currentDay = new Date('2099-06-12T00:00:00.000Z');
-    // Baseline: 80%. Current: 75% - only a 5-point drop, below the default 10-point threshold.
+    // Baseline 100%, current 75% - a 25-point drop, but still above the 60% floor.
     await db('canonical_lace_calls').insert([
-      ...Array.from({ length: 8 }, () => callRow(baselineDay, true)),
-      ...Array.from({ length: 2 }, () => callRow(baselineDay, false)),
+      ...Array.from({ length: 10 }, () => callRow(baselineDay, true)),
       ...Array.from({ length: 3 }, () => callRow(currentDay, true)),
       ...Array.from({ length: 1 }, () => callRow(currentDay, false)),
     ]);
@@ -89,10 +102,10 @@ describe('evaluateBookingRateDecline (D-01)', () => {
     expect(findings).toEqual([]);
   });
 
-  it('flags a per-CSR decline independently of the tenant-wide rate (SPEC-BI-001: "overall or by CSR")', async () => {
+  it('flags a CSR below the floor independently of the tenant-wide rate (SPEC-BI-001: "overall or by CSR")', async () => {
     const baselineDay = new Date('2099-05-20T00:00:00.000Z');
     const currentDay = new Date('2099-06-12T00:00:00.000Z');
-    // Tenant-wide stays flat (mixing both CSRs), but "Alex" alone drops from 80% to 40%.
+    // Tenant-wide is 12/20 = 60% (not below the floor), but "Alex" alone is at 40%.
     await db('canonical_lace_calls').insert([
       ...Array.from({ length: 8 }, () => callRow(baselineDay, true, 'Alex')),
       ...Array.from({ length: 2 }, () => callRow(baselineDay, false, 'Alex')),
@@ -114,7 +127,7 @@ describe('evaluateBookingRateDecline (D-01)', () => {
   it('does not flag a CSR with fewer than the minimum call volume in either window', async () => {
     const baselineDay = new Date('2099-05-20T00:00:00.000Z');
     const currentDay = new Date('2099-06-12T00:00:00.000Z');
-    // Only 3 calls for "Jordan" in the current window - below the 5-call minimum.
+    // Only 3 calls for "Jordan" in the current window (33%) - below the 5-call minimum.
     await db('canonical_lace_calls').insert([
       ...Array.from({ length: 8 }, () => callRow(baselineDay, true, 'Jordan')),
       ...Array.from({ length: 2 }, () => callRow(baselineDay, false, 'Jordan')),
