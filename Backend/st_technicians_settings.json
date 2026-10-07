@@ -1,0 +1,2236 @@
+{
+  "page": 1,
+  "pageSize": 5,
+  "hasMore": true,
+  "totalCount": null,
+  "data": [
+    {
+      "id": 3207,
+      "userId": 3207,
+      "name": "Craig Boelsgaard",
+      "roleIds": [
+        21
+      ],
+      "businessUnitId": 17974652,
+      "mainZoneId": null,
+      "zoneIds": [],
+      "projectLabelIds": [],
+      "createdOn": "2023-07-05T20:36:49.2635149Z",
+      "modifiedOn": "2026-08-24T21:15:24.1495656Z",
+      "email": "craig_boelsgaard@hotmail.com",
+      "phoneNumber": "7785947125",
+      "loginName": "TruCraigB",
+      "home": {
+        "street": "4025 Gellatly Road South, 126",
+        "unit": null,
+        "country": "Canada",
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 0E6",
+        "streetAddress": "4025 Gellatly Road South, 126",
+        "latitude": 49.817086,
+        "longitude": -119.6364721
+      },
+      "dailyGoal": 1500,
+      "isManagedTech": true,
+      "licenseType": "ManagedTech",
+      "customFields": [],
+      "active": true,
+      "aadUserId": null,
+      "burdenRate": 0,
+      "team": "HVAC - Service",
+      "jobFilter": "NextScheduledDispatchedWorking",
+      "permissions": [
+        {
+          "id": 27,
+          "value": "Edit Purchase Order in Pending Status"
+        },
+        {
+          "id": 279,
+          "value": "Calculate Prices"
+        },
+        {
+          "id": 289,
+          "value": "View Item Prices"
+        },
+        {
+          "id": 426,
+          "value": "Read-only Access to Customer Chats"
+        },
+        {
+          "id": 427,
+          "value": "Full Access to Customer Chats (must have read permission checked)"
+        },
+        {
+          "id": 478,
+          "value": "Create Purchase Order"
+        },
+        {
+          "id": 493,
+          "value": "Receive Shipment"
+        },
+        {
+          "id": 608,
+          "value": "Access Purchasing Inventory"
+        },
+        {
+          "id": 609,
+          "value": "View Purchase Orders Totals"
+        },
+        {
+          "id": 610,
+          "value": "View Purchase Orders"
+        },
+        {
+          "id": 611,
+          "value": "View Returns Totals"
+        },
+        {
+          "id": 612,
+          "value": "View Returns"
+        },
+        {
+          "id": 615,
+          "value": "Allow access to Inventory Mobile App"
+        },
+        {
+          "id": 628,
+          "value": "Show Project Financials"
+        },
+        {
+          "id": 663,
+          "value": "Template Pricebook Items"
+        },
+        {
+          "id": 1024,
+          "value": "Mobile"
+        },
+        {
+          "id": 1025,
+          "value": "Mobile Book Job"
+        },
+        {
+          "id": 1027,
+          "value": "Mobile Pricebook Access"
+        },
+        {
+          "id": 1028,
+          "value": "Mobile View Material Costs"
+        },
+        {
+          "id": 1030,
+          "value": "Mobile View Forms"
+        },
+        {
+          "id": 1040,
+          "value": "Mobile Listen To Call Recording"
+        },
+        {
+          "id": 1041,
+          "value": "Mobile Clock In And Out"
+        },
+        {
+          "id": 1050,
+          "value": "Mobile View Scorecard"
+        },
+        {
+          "id": 1100,
+          "value": "Mobile View Customer Record"
+        },
+        {
+          "id": 1101,
+          "value": "Mobile View Location Record"
+        },
+        {
+          "id": 1102,
+          "value": "Mobile View Customer Phone Numbers"
+        },
+        {
+          "id": 1103,
+          "value": "Mobile View Location Phone Numbers"
+        },
+        {
+          "id": 1104,
+          "value": "Mobile View Customer Emails"
+        },
+        {
+          "id": 1105,
+          "value": "Mobile View Location Emails"
+        },
+        {
+          "id": 1106,
+          "value": "Mobile View Job Notes"
+        },
+        {
+          "id": 1107,
+          "value": "Mobile View Job Attachments"
+        },
+        {
+          "id": 1108,
+          "value": "Mobile View Location Attachments"
+        },
+        {
+          "id": 1109,
+          "value": "Mobile View Customer Attachments"
+        },
+        {
+          "id": 1110,
+          "value": "Mobile Check In Out"
+        },
+        {
+          "id": 1112,
+          "value": "Mobile Bypass Signature"
+        },
+        {
+          "id": 1113,
+          "value": "Mobile Add On Checkbox"
+        },
+        {
+          "id": 1114,
+          "value": "Mobile Technician Job Sold By Assigning"
+        },
+        {
+          "id": 1115,
+          "value": "Mobile Edit Payment"
+        },
+        {
+          "id": 1116,
+          "value": "Mobile Mark Estimate As Recommended"
+        },
+        {
+          "id": 1117,
+          "value": "Mobile Allow Switch To Training Mode"
+        },
+        {
+          "id": 1118,
+          "value": "Mobile Self Dispatching"
+        },
+        {
+          "id": 1119,
+          "value": "Pause on an Appointment"
+        },
+        {
+          "id": 1120,
+          "value": "Mobile Access Follow Ups"
+        },
+        {
+          "id": 1121,
+          "value": "Mobile View History Tab"
+        },
+        {
+          "id": 1122,
+          "value": "Mobile View Scorecard 2.0"
+        },
+        {
+          "id": 1123,
+          "value": "Mobile Upload Photos And Videos"
+        },
+        {
+          "id": 1124,
+          "value": "Mobile Edit Estimates In Follow Up"
+        },
+        {
+          "id": 1125,
+          "value": "Mobile Make Estimate Name Required"
+        },
+        {
+          "id": 1128,
+          "value": "Mobile Place Job On Hold"
+        },
+        {
+          "id": 1130,
+          "value": "Mobile Technician Is Able To Dispute Payroll"
+        },
+        {
+          "id": 1133,
+          "value": "Set Notes On Customer, Location or Job"
+        },
+        {
+          "id": 1134,
+          "value": "Mobile Allow Forms Duplication"
+        },
+        {
+          "id": 1135,
+          "value": "Mobile View Equipment Costs"
+        },
+        {
+          "id": 1136,
+          "value": "Mobile Enable Phone Capture"
+        },
+        {
+          "id": 1138,
+          "value": "Enable Visit Assistant"
+        },
+        {
+          "id": 1141,
+          "value": "Allow technician to send POs of permitted PO Types"
+        },
+        {
+          "id": 1143,
+          "value": "Request an additional appointment for a Job"
+        },
+        {
+          "id": 1144,
+          "value": "Allow technicians to receive POs of permitted PO Types"
+        },
+        {
+          "id": 1145,
+          "value": "Allow uploading attachments after job is completed or put on hold"
+        },
+        {
+          "id": 1147,
+          "value": "Allow Technician to create Returns against Job POs"
+        },
+        {
+          "id": 1150,
+          "value": "Invoice Summary is Required"
+        },
+        {
+          "id": 1151,
+          "value": "(New) Field Mobile App Experience"
+        },
+        {
+          "id": 1152,
+          "value": "Classic Mobile Experience"
+        },
+        {
+          "id": 1154,
+          "value": "Create Estimate"
+        },
+        {
+          "id": 1155,
+          "value": "Delete Estimate"
+        },
+        {
+          "id": 1156,
+          "value": "Sell Estimate"
+        },
+        {
+          "id": 1157,
+          "value": "Add Estimate and Invoice Item"
+        },
+        {
+          "id": 1158,
+          "value": "Edit Estimate Name and Summary"
+        },
+        {
+          "id": 1159,
+          "value": "Edit Item Details"
+        },
+        {
+          "id": 1160,
+          "value": "Edit Item Quantity"
+        },
+        {
+          "id": 1161,
+          "value": "Mark Equipment as Serviced"
+        },
+        {
+          "id": 1162,
+          "value": "View Total Price"
+        },
+        {
+          "id": 1163,
+          "value": "Enable FieldAssist for Technician"
+        },
+        {
+          "id": 1164,
+          "value": "Enable job briefs"
+        },
+        {
+          "id": 1165,
+          "value": "View/Edit Contracts"
+        },
+        {
+          "id": 1169,
+          "value": "View Field Pro"
+        },
+        {
+          "id": 1170,
+          "value": "View Historical Details"
+        },
+        {
+          "id": 1171,
+          "value": "Allow closing job without confirming findings"
+        },
+        {
+          "id": 1172,
+          "value": "Configure Financing Plans in Mobile"
+        },
+        {
+          "id": 1173,
+          "value": "Edit Invoice Summary in Mobile"
+        },
+        {
+          "id": 1174,
+          "value": "Allow Media Upload from Device Camera Roll"
+        },
+        {
+          "id": 1176,
+          "value": "Enable Editing Equipment Systems"
+        },
+        {
+          "id": 1180,
+          "value": "Generate Estimate Name and Summary with AI"
+        },
+        {
+          "id": 1181,
+          "value": "Edit Project Invoice"
+        },
+        {
+          "id": 1185,
+          "value": "View Calendar"
+        },
+        {
+          "id": 1186,
+          "value": "Edit Work Summary"
+        },
+        {
+          "id": 1188,
+          "value": "Share Invoice"
+        },
+        {
+          "id": 1189,
+          "value": "Enable Editing Equipment Physical Locations and Service Areas"
+        },
+        {
+          "id": 1192,
+          "value": "Edit Current Job Forms After Dispatch"
+        },
+        {
+          "id": 1538,
+          "value": "Lead Technician Actions"
+        },
+        {
+          "id": 1540,
+          "value": "Mobile Edit Timesheet Activities"
+        },
+        {
+          "id": 1541,
+          "value": "Mobile Allow Create Manual Timesheets"
+        },
+        {
+          "id": 4102,
+          "value": "Employee Can View Project Portfolio"
+        },
+        {
+          "id": 4103,
+          "value": "Employee Can Edit Projects Type"
+        },
+        {
+          "id": 4104,
+          "value": "Employee Can Override Projects Type Settings On Project"
+        },
+        {
+          "id": 4113,
+          "value": "Order measurements on job/location"
+        },
+        {
+          "id": 4114,
+          "value": "Upload measurements"
+        },
+        {
+          "id": 10010,
+          "value": "View Scheduler"
+        },
+        {
+          "id": 10020,
+          "value": "Edit Scheduler"
+        },
+        {
+          "id": 10210,
+          "value": "View AI Concierge Agent Workflows"
+        }
+      ],
+      "accountLocked": false,
+      "commissionRate": 0.05,
+      "currentValue": 0,
+      "firstName": null,
+      "lastName": null,
+      "hourlyRate": 1,
+      "jobId": null,
+      "mobilePhone": "7785947125",
+      "outboundCallerId": null,
+      "payrollId": null,
+      "payrollProfileId": 19268441,
+      "appoitmentId": null,
+      "shiftStart": "08:00:00",
+      "shiftEnd": "18:00:00",
+      "soldByRate": 0.04,
+      "startDate": null,
+      "status": "Idle",
+      "skills": [
+        {
+          "id": 7983310,
+          "name": "Service - Gasfitting"
+        },
+        {
+          "id": 17974563,
+          "name": "Repair - Hydronic Boiler"
+        },
+        {
+          "id": 61816118,
+          "name": "TruFinity (H) - L3-Senior Tech"
+        },
+        {
+          "id": 61817008,
+          "name": "TruFinity (H) - L2-Service Tech"
+        }
+      ],
+      "positions": [
+        "Installer",
+        "Service",
+        "Maintenance"
+      ],
+      "location": {
+        "latitude": 49.861043022009866,
+        "longitude": -119.47938418365854,
+        "coordinatesUpdatedOn": "2026-08-24T21:46:00.195049Z"
+      },
+      "bio": "Craig is a seasoned tradesman with over a decade of experience under his belt. He's honed his skills and expertise through years of dedicated work in the industry. Yet, when he's not on the job, Craig trades his tools for a backpack and hiking boots. He loves nothing more than spending his off days camping and exploring the great outdoors with his wife and kids, creating cherished memories amidst nature's beauty.",
+      "memo": "Craig can complete all plumbing & HVAC related tasks & furnace repairs and installs"
+    },
+    {
+      "id": 1779673,
+      "userId": 1779673,
+      "name": "Cole Rogers",
+      "roleIds": [
+        21
+      ],
+      "businessUnitId": 934,
+      "mainZoneId": null,
+      "zoneIds": [],
+      "projectLabelIds": [],
+      "createdOn": "2023-08-16T21:24:20.0210801Z",
+      "modifiedOn": "2026-08-25T00:21:54.8157933Z",
+      "email": "colerplumb@gmail.com",
+      "phoneNumber": "7782156452",
+      "loginName": "TruColeR",
+      "home": {
+        "street": "1290 Bothe Road",
+        "unit": null,
+        "country": "Canada",
+        "city": "Kelowna",
+        "state": "BC",
+        "zip": "V1W 3N3",
+        "streetAddress": "1290 Bothe Road",
+        "latitude": 49.857679,
+        "longitude": -119.4719662
+      },
+      "dailyGoal": 0,
+      "isManagedTech": true,
+      "licenseType": "ManagedTech",
+      "customFields": [],
+      "active": true,
+      "aadUserId": null,
+      "burdenRate": 0,
+      "team": "PLMBG - Service",
+      "jobFilter": "NextScheduledDispatchedWorking",
+      "permissions": [
+        {
+          "id": 27,
+          "value": "Edit Purchase Order in Pending Status"
+        },
+        {
+          "id": 279,
+          "value": "Calculate Prices"
+        },
+        {
+          "id": 289,
+          "value": "View Item Prices"
+        },
+        {
+          "id": 426,
+          "value": "Read-only Access to Customer Chats"
+        },
+        {
+          "id": 427,
+          "value": "Full Access to Customer Chats (must have read permission checked)"
+        },
+        {
+          "id": 478,
+          "value": "Create Purchase Order"
+        },
+        {
+          "id": 493,
+          "value": "Receive Shipment"
+        },
+        {
+          "id": 615,
+          "value": "Allow access to Inventory Mobile App"
+        },
+        {
+          "id": 1024,
+          "value": "Mobile"
+        },
+        {
+          "id": 1025,
+          "value": "Mobile Book Job"
+        },
+        {
+          "id": 1027,
+          "value": "Mobile Pricebook Access"
+        },
+        {
+          "id": 1028,
+          "value": "Mobile View Material Costs"
+        },
+        {
+          "id": 1030,
+          "value": "Mobile View Forms"
+        },
+        {
+          "id": 1040,
+          "value": "Mobile Listen To Call Recording"
+        },
+        {
+          "id": 1041,
+          "value": "Mobile Clock In And Out"
+        },
+        {
+          "id": 1050,
+          "value": "Mobile View Scorecard"
+        },
+        {
+          "id": 1100,
+          "value": "Mobile View Customer Record"
+        },
+        {
+          "id": 1101,
+          "value": "Mobile View Location Record"
+        },
+        {
+          "id": 1102,
+          "value": "Mobile View Customer Phone Numbers"
+        },
+        {
+          "id": 1103,
+          "value": "Mobile View Location Phone Numbers"
+        },
+        {
+          "id": 1104,
+          "value": "Mobile View Customer Emails"
+        },
+        {
+          "id": 1105,
+          "value": "Mobile View Location Emails"
+        },
+        {
+          "id": 1106,
+          "value": "Mobile View Job Notes"
+        },
+        {
+          "id": 1107,
+          "value": "Mobile View Job Attachments"
+        },
+        {
+          "id": 1108,
+          "value": "Mobile View Location Attachments"
+        },
+        {
+          "id": 1109,
+          "value": "Mobile View Customer Attachments"
+        },
+        {
+          "id": 1110,
+          "value": "Mobile Check In Out"
+        },
+        {
+          "id": 1112,
+          "value": "Mobile Bypass Signature"
+        },
+        {
+          "id": 1113,
+          "value": "Mobile Add On Checkbox"
+        },
+        {
+          "id": 1114,
+          "value": "Mobile Technician Job Sold By Assigning"
+        },
+        {
+          "id": 1115,
+          "value": "Mobile Edit Payment"
+        },
+        {
+          "id": 1116,
+          "value": "Mobile Mark Estimate As Recommended"
+        },
+        {
+          "id": 1117,
+          "value": "Mobile Allow Switch To Training Mode"
+        },
+        {
+          "id": 1118,
+          "value": "Mobile Self Dispatching"
+        },
+        {
+          "id": 1119,
+          "value": "Pause on an Appointment"
+        },
+        {
+          "id": 1120,
+          "value": "Mobile Access Follow Ups"
+        },
+        {
+          "id": 1121,
+          "value": "Mobile View History Tab"
+        },
+        {
+          "id": 1122,
+          "value": "Mobile View Scorecard 2.0"
+        },
+        {
+          "id": 1123,
+          "value": "Mobile Upload Photos And Videos"
+        },
+        {
+          "id": 1124,
+          "value": "Mobile Edit Estimates In Follow Up"
+        },
+        {
+          "id": 1125,
+          "value": "Mobile Make Estimate Name Required"
+        },
+        {
+          "id": 1128,
+          "value": "Mobile Place Job On Hold"
+        },
+        {
+          "id": 1130,
+          "value": "Mobile Technician Is Able To Dispute Payroll"
+        },
+        {
+          "id": 1133,
+          "value": "Set Notes On Customer, Location or Job"
+        },
+        {
+          "id": 1134,
+          "value": "Mobile Allow Forms Duplication"
+        },
+        {
+          "id": 1135,
+          "value": "Mobile View Equipment Costs"
+        },
+        {
+          "id": 1136,
+          "value": "Mobile Enable Phone Capture"
+        },
+        {
+          "id": 1138,
+          "value": "Enable Visit Assistant"
+        },
+        {
+          "id": 1141,
+          "value": "Allow technician to send POs of permitted PO Types"
+        },
+        {
+          "id": 1143,
+          "value": "Request an additional appointment for a Job"
+        },
+        {
+          "id": 1144,
+          "value": "Allow technicians to receive POs of permitted PO Types"
+        },
+        {
+          "id": 1145,
+          "value": "Allow uploading attachments after job is completed or put on hold"
+        },
+        {
+          "id": 1147,
+          "value": "Allow Technician to create Returns against Job POs"
+        },
+        {
+          "id": 1150,
+          "value": "Invoice Summary is Required"
+        },
+        {
+          "id": 1151,
+          "value": "(New) Field Mobile App Experience"
+        },
+        {
+          "id": 1152,
+          "value": "Classic Mobile Experience"
+        },
+        {
+          "id": 1154,
+          "value": "Create Estimate"
+        },
+        {
+          "id": 1155,
+          "value": "Delete Estimate"
+        },
+        {
+          "id": 1156,
+          "value": "Sell Estimate"
+        },
+        {
+          "id": 1157,
+          "value": "Add Estimate and Invoice Item"
+        },
+        {
+          "id": 1158,
+          "value": "Edit Estimate Name and Summary"
+        },
+        {
+          "id": 1159,
+          "value": "Edit Item Details"
+        },
+        {
+          "id": 1160,
+          "value": "Edit Item Quantity"
+        },
+        {
+          "id": 1161,
+          "value": "Mark Equipment as Serviced"
+        },
+        {
+          "id": 1162,
+          "value": "View Total Price"
+        },
+        {
+          "id": 1163,
+          "value": "Enable FieldAssist for Technician"
+        },
+        {
+          "id": 1164,
+          "value": "Enable job briefs"
+        },
+        {
+          "id": 1165,
+          "value": "View/Edit Contracts"
+        },
+        {
+          "id": 1169,
+          "value": "View Field Pro"
+        },
+        {
+          "id": 1170,
+          "value": "View Historical Details"
+        },
+        {
+          "id": 1171,
+          "value": "Allow closing job without confirming findings"
+        },
+        {
+          "id": 1172,
+          "value": "Configure Financing Plans in Mobile"
+        },
+        {
+          "id": 1173,
+          "value": "Edit Invoice Summary in Mobile"
+        },
+        {
+          "id": 1174,
+          "value": "Allow Media Upload from Device Camera Roll"
+        },
+        {
+          "id": 1176,
+          "value": "Enable Editing Equipment Systems"
+        },
+        {
+          "id": 1180,
+          "value": "Generate Estimate Name and Summary with AI"
+        },
+        {
+          "id": 1181,
+          "value": "Edit Project Invoice"
+        },
+        {
+          "id": 1185,
+          "value": "View Calendar"
+        },
+        {
+          "id": 1186,
+          "value": "Edit Work Summary"
+        },
+        {
+          "id": 1188,
+          "value": "Share Invoice"
+        },
+        {
+          "id": 1189,
+          "value": "Enable Editing Equipment Physical Locations and Service Areas"
+        },
+        {
+          "id": 1192,
+          "value": "Edit Current Job Forms After Dispatch"
+        },
+        {
+          "id": 1538,
+          "value": "Lead Technician Actions"
+        },
+        {
+          "id": 1540,
+          "value": "Mobile Edit Timesheet Activities"
+        },
+        {
+          "id": 1541,
+          "value": "Mobile Allow Create Manual Timesheets"
+        }
+      ],
+      "accountLocked": false,
+      "commissionRate": 0,
+      "currentValue": null,
+      "firstName": null,
+      "lastName": null,
+      "hourlyRate": 1,
+      "jobId": null,
+      "mobilePhone": "7782156452",
+      "outboundCallerId": null,
+      "payrollId": null,
+      "payrollProfileId": 19268441,
+      "appoitmentId": null,
+      "shiftStart": "08:00:00",
+      "shiftEnd": "18:00:00",
+      "soldByRate": 0,
+      "startDate": null,
+      "status": "Idle",
+      "skills": [
+        {
+          "id": 4739,
+          "name": "Install - Tankless WH"
+        },
+        {
+          "id": 7928424,
+          "name": "Service - Drain Cleaning"
+        },
+        {
+          "id": 7983310,
+          "name": "Service - Gasfitting"
+        },
+        {
+          "id": 18195125,
+          "name": "Install - Water Re-Pipe"
+        },
+        {
+          "id": 19959370,
+          "name": "Service - Hydro-Jetting"
+        },
+        {
+          "id": 26915171,
+          "name": "Sales - (P) General Estimates"
+        },
+        {
+          "id": 60275719,
+          "name": "Knowledge - Gas+Venting Sizing"
+        },
+        {
+          "id": 60282192,
+          "name": "TruFinity (P) - L3-Senior Tech"
+        },
+        {
+          "id": 60282314,
+          "name": "TruFinity (P) - L2-ServiceTech"
+        }
+      ],
+      "positions": [
+        "Service"
+      ],
+      "location": {
+        "latitude": 49.902413042201886,
+        "longitude": -119.49277608769225,
+        "coordinatesUpdatedOn": "2026-08-25T01:07:39.8285749Z"
+      },
+      "bio": "Cole Roger specializes in Plumbing Service & Repairs.",
+      "memo": "Cole Roger specializes in Plumbing Service & Repairs."
+    },
+    {
+      "id": 1779682,
+      "userId": 1779682,
+      "name": "Julian Metz",
+      "roleIds": [
+        21
+      ],
+      "businessUnitId": 934,
+      "mainZoneId": null,
+      "zoneIds": [],
+      "projectLabelIds": [],
+      "createdOn": "2023-08-16T22:43:26.7549573Z",
+      "modifiedOn": "2026-08-21T21:15:48.7143734Z",
+      "email": "julianmetz1989@gmail.com",
+      "phoneNumber": "6043076844",
+      "loginName": "CEJulianM",
+      "home": {
+        "street": "4025 Gellatly Road South, 416",
+        "unit": null,
+        "country": "Canada",
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 0E6",
+        "streetAddress": "4025 Gellatly Road South, 416",
+        "latitude": 49.817086,
+        "longitude": -119.6364721
+      },
+      "dailyGoal": 2300,
+      "isManagedTech": true,
+      "licenseType": "ManagedTech",
+      "customFields": [],
+      "active": true,
+      "aadUserId": null,
+      "burdenRate": 0,
+      "team": "PLMBG - Service",
+      "jobFilter": "NextScheduledDispatchedWorking",
+      "permissions": [
+        {
+          "id": 27,
+          "value": "Edit Purchase Order in Pending Status"
+        },
+        {
+          "id": 279,
+          "value": "Calculate Prices"
+        },
+        {
+          "id": 289,
+          "value": "View Item Prices"
+        },
+        {
+          "id": 426,
+          "value": "Read-only Access to Customer Chats"
+        },
+        {
+          "id": 427,
+          "value": "Full Access to Customer Chats (must have read permission checked)"
+        },
+        {
+          "id": 478,
+          "value": "Create Purchase Order"
+        },
+        {
+          "id": 493,
+          "value": "Receive Shipment"
+        },
+        {
+          "id": 608,
+          "value": "Access Purchasing Inventory"
+        },
+        {
+          "id": 609,
+          "value": "View Purchase Orders Totals"
+        },
+        {
+          "id": 610,
+          "value": "View Purchase Orders"
+        },
+        {
+          "id": 611,
+          "value": "View Returns Totals"
+        },
+        {
+          "id": 612,
+          "value": "View Returns"
+        },
+        {
+          "id": 615,
+          "value": "Allow access to Inventory Mobile App"
+        },
+        {
+          "id": 628,
+          "value": "Show Project Financials"
+        },
+        {
+          "id": 663,
+          "value": "Template Pricebook Items"
+        },
+        {
+          "id": 1024,
+          "value": "Mobile"
+        },
+        {
+          "id": 1025,
+          "value": "Mobile Book Job"
+        },
+        {
+          "id": 1027,
+          "value": "Mobile Pricebook Access"
+        },
+        {
+          "id": 1028,
+          "value": "Mobile View Material Costs"
+        },
+        {
+          "id": 1030,
+          "value": "Mobile View Forms"
+        },
+        {
+          "id": 1040,
+          "value": "Mobile Listen To Call Recording"
+        },
+        {
+          "id": 1041,
+          "value": "Mobile Clock In And Out"
+        },
+        {
+          "id": 1050,
+          "value": "Mobile View Scorecard"
+        },
+        {
+          "id": 1100,
+          "value": "Mobile View Customer Record"
+        },
+        {
+          "id": 1101,
+          "value": "Mobile View Location Record"
+        },
+        {
+          "id": 1102,
+          "value": "Mobile View Customer Phone Numbers"
+        },
+        {
+          "id": 1103,
+          "value": "Mobile View Location Phone Numbers"
+        },
+        {
+          "id": 1104,
+          "value": "Mobile View Customer Emails"
+        },
+        {
+          "id": 1105,
+          "value": "Mobile View Location Emails"
+        },
+        {
+          "id": 1106,
+          "value": "Mobile View Job Notes"
+        },
+        {
+          "id": 1107,
+          "value": "Mobile View Job Attachments"
+        },
+        {
+          "id": 1108,
+          "value": "Mobile View Location Attachments"
+        },
+        {
+          "id": 1109,
+          "value": "Mobile View Customer Attachments"
+        },
+        {
+          "id": 1110,
+          "value": "Mobile Check In Out"
+        },
+        {
+          "id": 1112,
+          "value": "Mobile Bypass Signature"
+        },
+        {
+          "id": 1113,
+          "value": "Mobile Add On Checkbox"
+        },
+        {
+          "id": 1114,
+          "value": "Mobile Technician Job Sold By Assigning"
+        },
+        {
+          "id": 1115,
+          "value": "Mobile Edit Payment"
+        },
+        {
+          "id": 1116,
+          "value": "Mobile Mark Estimate As Recommended"
+        },
+        {
+          "id": 1117,
+          "value": "Mobile Allow Switch To Training Mode"
+        },
+        {
+          "id": 1118,
+          "value": "Mobile Self Dispatching"
+        },
+        {
+          "id": 1119,
+          "value": "Pause on an Appointment"
+        },
+        {
+          "id": 1120,
+          "value": "Mobile Access Follow Ups"
+        },
+        {
+          "id": 1121,
+          "value": "Mobile View History Tab"
+        },
+        {
+          "id": 1122,
+          "value": "Mobile View Scorecard 2.0"
+        },
+        {
+          "id": 1123,
+          "value": "Mobile Upload Photos And Videos"
+        },
+        {
+          "id": 1124,
+          "value": "Mobile Edit Estimates In Follow Up"
+        },
+        {
+          "id": 1125,
+          "value": "Mobile Make Estimate Name Required"
+        },
+        {
+          "id": 1128,
+          "value": "Mobile Place Job On Hold"
+        },
+        {
+          "id": 1130,
+          "value": "Mobile Technician Is Able To Dispute Payroll"
+        },
+        {
+          "id": 1133,
+          "value": "Set Notes On Customer, Location or Job"
+        },
+        {
+          "id": 1134,
+          "value": "Mobile Allow Forms Duplication"
+        },
+        {
+          "id": 1135,
+          "value": "Mobile View Equipment Costs"
+        },
+        {
+          "id": 1136,
+          "value": "Mobile Enable Phone Capture"
+        },
+        {
+          "id": 1138,
+          "value": "Enable Visit Assistant"
+        },
+        {
+          "id": 1141,
+          "value": "Allow technician to send POs of permitted PO Types"
+        },
+        {
+          "id": 1143,
+          "value": "Request an additional appointment for a Job"
+        },
+        {
+          "id": 1144,
+          "value": "Allow technicians to receive POs of permitted PO Types"
+        },
+        {
+          "id": 1145,
+          "value": "Allow uploading attachments after job is completed or put on hold"
+        },
+        {
+          "id": 1147,
+          "value": "Allow Technician to create Returns against Job POs"
+        },
+        {
+          "id": 1150,
+          "value": "Invoice Summary is Required"
+        },
+        {
+          "id": 1151,
+          "value": "(New) Field Mobile App Experience"
+        },
+        {
+          "id": 1152,
+          "value": "Classic Mobile Experience"
+        },
+        {
+          "id": 1154,
+          "value": "Create Estimate"
+        },
+        {
+          "id": 1155,
+          "value": "Delete Estimate"
+        },
+        {
+          "id": 1156,
+          "value": "Sell Estimate"
+        },
+        {
+          "id": 1157,
+          "value": "Add Estimate and Invoice Item"
+        },
+        {
+          "id": 1158,
+          "value": "Edit Estimate Name and Summary"
+        },
+        {
+          "id": 1159,
+          "value": "Edit Item Details"
+        },
+        {
+          "id": 1160,
+          "value": "Edit Item Quantity"
+        },
+        {
+          "id": 1161,
+          "value": "Mark Equipment as Serviced"
+        },
+        {
+          "id": 1162,
+          "value": "View Total Price"
+        },
+        {
+          "id": 1163,
+          "value": "Enable FieldAssist for Technician"
+        },
+        {
+          "id": 1164,
+          "value": "Enable job briefs"
+        },
+        {
+          "id": 1165,
+          "value": "View/Edit Contracts"
+        },
+        {
+          "id": 1169,
+          "value": "View Field Pro"
+        },
+        {
+          "id": 1170,
+          "value": "View Historical Details"
+        },
+        {
+          "id": 1171,
+          "value": "Allow closing job without confirming findings"
+        },
+        {
+          "id": 1172,
+          "value": "Configure Financing Plans in Mobile"
+        },
+        {
+          "id": 1173,
+          "value": "Edit Invoice Summary in Mobile"
+        },
+        {
+          "id": 1174,
+          "value": "Allow Media Upload from Device Camera Roll"
+        },
+        {
+          "id": 1176,
+          "value": "Enable Editing Equipment Systems"
+        },
+        {
+          "id": 1180,
+          "value": "Generate Estimate Name and Summary with AI"
+        },
+        {
+          "id": 1181,
+          "value": "Edit Project Invoice"
+        },
+        {
+          "id": 1185,
+          "value": "View Calendar"
+        },
+        {
+          "id": 1186,
+          "value": "Edit Work Summary"
+        },
+        {
+          "id": 1188,
+          "value": "Share Invoice"
+        },
+        {
+          "id": 1189,
+          "value": "Enable Editing Equipment Physical Locations and Service Areas"
+        },
+        {
+          "id": 1192,
+          "value": "Edit Current Job Forms After Dispatch"
+        },
+        {
+          "id": 1538,
+          "value": "Lead Technician Actions"
+        },
+        {
+          "id": 1540,
+          "value": "Mobile Edit Timesheet Activities"
+        },
+        {
+          "id": 1541,
+          "value": "Mobile Allow Create Manual Timesheets"
+        },
+        {
+          "id": 4102,
+          "value": "Employee Can View Project Portfolio"
+        },
+        {
+          "id": 4103,
+          "value": "Employee Can Edit Projects Type"
+        },
+        {
+          "id": 4104,
+          "value": "Employee Can Override Projects Type Settings On Project"
+        },
+        {
+          "id": 4113,
+          "value": "Order measurements on job/location"
+        },
+        {
+          "id": 4114,
+          "value": "Upload measurements"
+        },
+        {
+          "id": 10010,
+          "value": "View Scheduler"
+        },
+        {
+          "id": 10020,
+          "value": "Edit Scheduler"
+        },
+        {
+          "id": 10210,
+          "value": "View AI Concierge Agent Workflows"
+        }
+      ],
+      "accountLocked": false,
+      "commissionRate": 0.05,
+      "currentValue": 0,
+      "firstName": null,
+      "lastName": null,
+      "hourlyRate": 1,
+      "jobId": null,
+      "mobilePhone": "6043076844",
+      "outboundCallerId": null,
+      "payrollId": null,
+      "payrollProfileId": 19268441,
+      "appoitmentId": null,
+      "shiftStart": "08:00:00",
+      "shiftEnd": "18:00:00",
+      "soldByRate": 0.04,
+      "startDate": null,
+      "status": "Idle",
+      "skills": [
+        {
+          "id": 4739,
+          "name": "Install - Tankless WH"
+        },
+        {
+          "id": 7983310,
+          "name": "Service - Gasfitting"
+        },
+        {
+          "id": 17974563,
+          "name": "Repair - Hydronic Boiler"
+        },
+        {
+          "id": 18195125,
+          "name": "Install - Water Re-Pipe"
+        },
+        {
+          "id": 22729608,
+          "name": "Install - Hydronic Boiler"
+        },
+        {
+          "id": 26915171,
+          "name": "Sales - (P) General Estimates"
+        },
+        {
+          "id": 60275719,
+          "name": "Knowledge - Gas+Venting Sizing"
+        },
+        {
+          "id": 60282192,
+          "name": "TruFinity (P) - L3-Senior Tech"
+        },
+        {
+          "id": 60282314,
+          "name": "TruFinity (P) - L2-ServiceTech"
+        }
+      ],
+      "positions": [
+        "Service"
+      ],
+      "location": {
+        "latitude": 50.03378212751185,
+        "longitude": -119.38623569886443,
+        "coordinatesUpdatedOn": "2026-08-21T20:26:52.0834957Z"
+      },
+      "bio": "Julian is a seasoned professional whose career began in the plumbing and heating industry in the UK, offering him a diverse range of experiences. During his downtime, he embraces the changing seasons with equal enthusiasm. In the winter, you'll find Julian shredding the slopes on his snowboard, while in the summer, he trades his gear for a boat, spending serene days on the lake.",
+      "memo": "Julian can do all plumbing related tasks, and highly experienced in boilers."
+    },
+    {
+      "id": 39160089,
+      "userId": 39160089,
+      "name": "New Construction ",
+      "roleIds": [
+        7
+      ],
+      "businessUnitId": null,
+      "mainZoneId": null,
+      "zoneIds": [],
+      "projectLabelIds": [],
+      "createdOn": "0001-01-01T00:00:00Z",
+      "modifiedOn": "2026-08-24T22:25:40.7223516Z",
+      "email": "test@gmail.com",
+      "phoneNumber": "6399980066",
+      "loginName": "dmargar",
+      "home": {
+        "street": "470 Neave Court, 104",
+        "unit": null,
+        "country": "Canada",
+        "city": "Kelowna",
+        "state": "BC",
+        "zip": "V1V 2M2",
+        "streetAddress": "470 Neave Court, 104",
+        "latitude": 49.9253318,
+        "longitude": -119.392372
+      },
+      "dailyGoal": 0,
+      "isManagedTech": true,
+      "licenseType": "ManagedInstaller",
+      "customFields": [],
+      "active": true,
+      "aadUserId": null,
+      "burdenRate": 0,
+      "team": "Install - P&H",
+      "jobFilter": null,
+      "permissions": [
+        {
+          "id": 27,
+          "value": "Edit Purchase Order in Pending Status"
+        },
+        {
+          "id": 279,
+          "value": "Calculate Prices"
+        },
+        {
+          "id": 289,
+          "value": "View Item Prices"
+        },
+        {
+          "id": 426,
+          "value": "Read-only Access to Customer Chats"
+        },
+        {
+          "id": 427,
+          "value": "Full Access to Customer Chats (must have read permission checked)"
+        },
+        {
+          "id": 478,
+          "value": "Create Purchase Order"
+        },
+        {
+          "id": 493,
+          "value": "Receive Shipment"
+        },
+        {
+          "id": 608,
+          "value": "Access Purchasing Inventory"
+        },
+        {
+          "id": 609,
+          "value": "View Purchase Orders Totals"
+        },
+        {
+          "id": 610,
+          "value": "View Purchase Orders"
+        },
+        {
+          "id": 611,
+          "value": "View Returns Totals"
+        },
+        {
+          "id": 612,
+          "value": "View Returns"
+        },
+        {
+          "id": 615,
+          "value": "Allow access to Inventory Mobile App"
+        },
+        {
+          "id": 628,
+          "value": "Show Project Financials"
+        },
+        {
+          "id": 663,
+          "value": "Template Pricebook Items"
+        },
+        {
+          "id": 1024,
+          "value": "Mobile"
+        },
+        {
+          "id": 1025,
+          "value": "Mobile Book Job"
+        },
+        {
+          "id": 1027,
+          "value": "Mobile Pricebook Access"
+        },
+        {
+          "id": 1028,
+          "value": "Mobile View Material Costs"
+        },
+        {
+          "id": 1030,
+          "value": "Mobile View Forms"
+        },
+        {
+          "id": 1040,
+          "value": "Mobile Listen To Call Recording"
+        },
+        {
+          "id": 1041,
+          "value": "Mobile Clock In And Out"
+        },
+        {
+          "id": 1050,
+          "value": "Mobile View Scorecard"
+        },
+        {
+          "id": 1100,
+          "value": "Mobile View Customer Record"
+        },
+        {
+          "id": 1101,
+          "value": "Mobile View Location Record"
+        },
+        {
+          "id": 1102,
+          "value": "Mobile View Customer Phone Numbers"
+        },
+        {
+          "id": 1103,
+          "value": "Mobile View Location Phone Numbers"
+        },
+        {
+          "id": 1104,
+          "value": "Mobile View Customer Emails"
+        },
+        {
+          "id": 1105,
+          "value": "Mobile View Location Emails"
+        },
+        {
+          "id": 1106,
+          "value": "Mobile View Job Notes"
+        },
+        {
+          "id": 1107,
+          "value": "Mobile View Job Attachments"
+        },
+        {
+          "id": 1108,
+          "value": "Mobile View Location Attachments"
+        },
+        {
+          "id": 1109,
+          "value": "Mobile View Customer Attachments"
+        },
+        {
+          "id": 1110,
+          "value": "Mobile Check In Out"
+        },
+        {
+          "id": 1112,
+          "value": "Mobile Bypass Signature"
+        },
+        {
+          "id": 1113,
+          "value": "Mobile Add On Checkbox"
+        },
+        {
+          "id": 1114,
+          "value": "Mobile Technician Job Sold By Assigning"
+        },
+        {
+          "id": 1115,
+          "value": "Mobile Edit Payment"
+        },
+        {
+          "id": 1116,
+          "value": "Mobile Mark Estimate As Recommended"
+        },
+        {
+          "id": 1117,
+          "value": "Mobile Allow Switch To Training Mode"
+        },
+        {
+          "id": 1118,
+          "value": "Mobile Self Dispatching"
+        },
+        {
+          "id": 1119,
+          "value": "Pause on an Appointment"
+        },
+        {
+          "id": 1120,
+          "value": "Mobile Access Follow Ups"
+        },
+        {
+          "id": 1121,
+          "value": "Mobile View History Tab"
+        },
+        {
+          "id": 1122,
+          "value": "Mobile View Scorecard 2.0"
+        },
+        {
+          "id": 1123,
+          "value": "Mobile Upload Photos And Videos"
+        },
+        {
+          "id": 1124,
+          "value": "Mobile Edit Estimates In Follow Up"
+        },
+        {
+          "id": 1125,
+          "value": "Mobile Make Estimate Name Required"
+        },
+        {
+          "id": 1128,
+          "value": "Mobile Place Job On Hold"
+        },
+        {
+          "id": 1130,
+          "value": "Mobile Technician Is Able To Dispute Payroll"
+        },
+        {
+          "id": 1133,
+          "value": "Set Notes On Customer, Location or Job"
+        },
+        {
+          "id": 1134,
+          "value": "Mobile Allow Forms Duplication"
+        },
+        {
+          "id": 1135,
+          "value": "Mobile View Equipment Costs"
+        },
+        {
+          "id": 1136,
+          "value": "Mobile Enable Phone Capture"
+        },
+        {
+          "id": 1138,
+          "value": "Enable Visit Assistant"
+        },
+        {
+          "id": 1141,
+          "value": "Allow technician to send POs of permitted PO Types"
+        },
+        {
+          "id": 1142,
+          "value": "Allow technician to add inventoried items to invoices if the item is not on their truck or truck template"
+        },
+        {
+          "id": 1143,
+          "value": "Request an additional appointment for a Job"
+        },
+        {
+          "id": 1144,
+          "value": "Allow technicians to receive POs of permitted PO Types"
+        },
+        {
+          "id": 1145,
+          "value": "Allow uploading attachments after job is completed or put on hold"
+        },
+        {
+          "id": 1147,
+          "value": "Allow Technician to create Returns against Job POs"
+        },
+        {
+          "id": 1149,
+          "value": "Create Item Requests"
+        },
+        {
+          "id": 1150,
+          "value": "Invoice Summary is Required"
+        },
+        {
+          "id": 1151,
+          "value": "(New) Field Mobile App Experience"
+        },
+        {
+          "id": 1152,
+          "value": "Classic Mobile Experience"
+        },
+        {
+          "id": 1154,
+          "value": "Create Estimate"
+        },
+        {
+          "id": 1155,
+          "value": "Delete Estimate"
+        },
+        {
+          "id": 1156,
+          "value": "Sell Estimate"
+        },
+        {
+          "id": 1157,
+          "value": "Add Estimate and Invoice Item"
+        },
+        {
+          "id": 1158,
+          "value": "Edit Estimate Name and Summary"
+        },
+        {
+          "id": 1159,
+          "value": "Edit Item Details"
+        },
+        {
+          "id": 1160,
+          "value": "Edit Item Quantity"
+        },
+        {
+          "id": 1161,
+          "value": "Mark Equipment as Serviced"
+        },
+        {
+          "id": 1162,
+          "value": "View Total Price"
+        },
+        {
+          "id": 1163,
+          "value": "Enable FieldAssist for Technician"
+        },
+        {
+          "id": 1164,
+          "value": "Enable job briefs"
+        },
+        {
+          "id": 1165,
+          "value": "View/Edit Contracts"
+        },
+        {
+          "id": 1170,
+          "value": "View Historical Details"
+        },
+        {
+          "id": 1171,
+          "value": "Allow closing job without confirming findings"
+        },
+        {
+          "id": 1172,
+          "value": "Configure Financing Plans in Mobile"
+        },
+        {
+          "id": 1173,
+          "value": "Edit Invoice Summary in Mobile"
+        },
+        {
+          "id": 1174,
+          "value": "Allow Media Upload from Device Camera Roll"
+        },
+        {
+          "id": 1176,
+          "value": "Enable Editing Equipment Systems"
+        },
+        {
+          "id": 1180,
+          "value": "Generate Estimate Name and Summary with AI"
+        },
+        {
+          "id": 1181,
+          "value": "Edit Project Invoice"
+        },
+        {
+          "id": 1185,
+          "value": "View Calendar"
+        },
+        {
+          "id": 1186,
+          "value": "Edit Work Summary"
+        },
+        {
+          "id": 1188,
+          "value": "Share Invoice"
+        },
+        {
+          "id": 1189,
+          "value": "Enable Editing Equipment Physical Locations and Service Areas"
+        },
+        {
+          "id": 1192,
+          "value": "Edit Current Job Forms After Dispatch"
+        },
+        {
+          "id": 1538,
+          "value": "Lead Technician Actions"
+        },
+        {
+          "id": 1540,
+          "value": "Mobile Edit Timesheet Activities"
+        },
+        {
+          "id": 1541,
+          "value": "Mobile Allow Create Manual Timesheets"
+        },
+        {
+          "id": 4102,
+          "value": "Employee Can View Project Portfolio"
+        },
+        {
+          "id": 4103,
+          "value": "Employee Can Edit Projects Type"
+        },
+        {
+          "id": 4104,
+          "value": "Employee Can Override Projects Type Settings On Project"
+        },
+        {
+          "id": 4113,
+          "value": "Order measurements on job/location"
+        },
+        {
+          "id": 4114,
+          "value": "Upload measurements"
+        },
+        {
+          "id": 10010,
+          "value": "View Scheduler"
+        },
+        {
+          "id": 10020,
+          "value": "Edit Scheduler"
+        },
+        {
+          "id": 10210,
+          "value": "View AI Concierge Agent Workflows"
+        }
+      ],
+      "accountLocked": false,
+      "commissionRate": 0,
+      "currentValue": null,
+      "firstName": null,
+      "lastName": null,
+      "hourlyRate": 30,
+      "jobId": null,
+      "mobilePhone": "6399980066",
+      "outboundCallerId": null,
+      "payrollId": null,
+      "payrollProfileId": 515,
+      "appoitmentId": null,
+      "shiftStart": null,
+      "shiftEnd": null,
+      "soldByRate": 0,
+      "startDate": null,
+      "status": "Idle",
+      "skills": null,
+      "positions": [
+        "Installer"
+      ],
+      "location": {
+        "latitude": 49.84612019999999,
+        "longitude": -119.6168623,
+        "coordinatesUpdatedOn": "2026-08-24T15:11:03.9963895Z"
+      },
+      "bio": "New Construction helper technician",
+      "memo": "New Construction helper technician"
+    },
+    {
+      "id": 52938834,
+      "userId": 52938834,
+      "name": "Ryan Mackenzie (Tech)",
+      "roleIds": [
+        7713899
+      ],
+      "businessUnitId": 3104,
+      "mainZoneId": null,
+      "zoneIds": [],
+      "projectLabelIds": [],
+      "createdOn": "2025-03-25T21:00:18.1814916Z",
+      "modifiedOn": "2026-08-11T04:39:18.9434767Z",
+      "email": "ryan@ceplumbingheating.ca",
+      "phoneNumber": "2508784602",
+      "loginName": "RyanCE123",
+      "home": {
+        "street": "2869 Scharf Road",
+        "unit": null,
+        "country": "Canada",
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 1M1",
+        "streetAddress": "2869 Scharf Road",
+        "latitude": 49.842081,
+        "longitude": -119.6514256
+      },
+      "dailyGoal": 0,
+      "isManagedTech": false,
+      "licenseType": "NonManagedTech",
+      "customFields": [],
+      "active": true,
+      "aadUserId": null,
+      "burdenRate": 0,
+      "team": null,
+      "jobFilter": null,
+      "permissions": [
+        {
+          "id": 289,
+          "value": "View Item Prices"
+        },
+        {
+          "id": 426,
+          "value": "Read-only Access to Customer Chats"
+        },
+        {
+          "id": 427,
+          "value": "Full Access to Customer Chats (must have read permission checked)"
+        },
+        {
+          "id": 615,
+          "value": "Allow access to Inventory Mobile App"
+        },
+        {
+          "id": 1024,
+          "value": "Mobile"
+        },
+        {
+          "id": 1027,
+          "value": "Mobile Pricebook Access"
+        },
+        {
+          "id": 1028,
+          "value": "Mobile View Material Costs"
+        },
+        {
+          "id": 1030,
+          "value": "Mobile View Forms"
+        },
+        {
+          "id": 1040,
+          "value": "Mobile Listen To Call Recording"
+        },
+        {
+          "id": 1041,
+          "value": "Mobile Clock In And Out"
+        },
+        {
+          "id": 1050,
+          "value": "Mobile View Scorecard"
+        },
+        {
+          "id": 1100,
+          "value": "Mobile View Customer Record"
+        },
+        {
+          "id": 1101,
+          "value": "Mobile View Location Record"
+        },
+        {
+          "id": 1102,
+          "value": "Mobile View Customer Phone Numbers"
+        },
+        {
+          "id": 1103,
+          "value": "Mobile View Location Phone Numbers"
+        },
+        {
+          "id": 1104,
+          "value": "Mobile View Customer Emails"
+        },
+        {
+          "id": 1105,
+          "value": "Mobile View Location Emails"
+        },
+        {
+          "id": 1106,
+          "value": "Mobile View Job Notes"
+        },
+        {
+          "id": 1107,
+          "value": "Mobile View Job Attachments"
+        },
+        {
+          "id": 1108,
+          "value": "Mobile View Location Attachments"
+        },
+        {
+          "id": 1109,
+          "value": "Mobile View Customer Attachments"
+        },
+        {
+          "id": 1110,
+          "value": "Mobile Check In Out"
+        },
+        {
+          "id": 1111,
+          "value": "Mobile Meal Break"
+        },
+        {
+          "id": 1112,
+          "value": "Mobile Bypass Signature"
+        },
+        {
+          "id": 1117,
+          "value": "Mobile Allow Switch To Training Mode"
+        },
+        {
+          "id": 1118,
+          "value": "Mobile Self Dispatching"
+        },
+        {
+          "id": 1119,
+          "value": "Pause on an Appointment"
+        },
+        {
+          "id": 1120,
+          "value": "Mobile Access Follow Ups"
+        },
+        {
+          "id": 1121,
+          "value": "Mobile View History Tab"
+        },
+        {
+          "id": 1122,
+          "value": "Mobile View Scorecard 2.0"
+        },
+        {
+          "id": 1123,
+          "value": "Mobile Upload Photos And Videos"
+        },
+        {
+          "id": 1125,
+          "value": "Mobile Make Estimate Name Required"
+        },
+        {
+          "id": 1128,
+          "value": "Mobile Place Job On Hold"
+        },
+        {
+          "id": 1130,
+          "value": "Mobile Technician Is Able To Dispute Payroll"
+        },
+        {
+          "id": 1132,
+          "value": "Mobile Allow Sending Emails From Technician Email Address"
+        },
+        {
+          "id": 1133,
+          "value": "Set Notes On Customer, Location or Job"
+        },
+        {
+          "id": 1134,
+          "value": "Mobile Allow Forms Duplication"
+        },
+        {
+          "id": 1135,
+          "value": "Mobile View Equipment Costs"
+        },
+        {
+          "id": 1136,
+          "value": "Mobile Enable Phone Capture"
+        },
+        {
+          "id": 1138,
+          "value": "Enable Visit Assistant"
+        },
+        {
+          "id": 1143,
+          "value": "Request an additional appointment for a Job"
+        },
+        {
+          "id": 1145,
+          "value": "Allow uploading attachments after job is completed or put on hold"
+        },
+        {
+          "id": 1150,
+          "value": "Invoice Summary is Required"
+        },
+        {
+          "id": 1151,
+          "value": "(New) Field Mobile App Experience"
+        },
+        {
+          "id": 1152,
+          "value": "Classic Mobile Experience"
+        },
+        {
+          "id": 1153,
+          "value": "Print Estimate"
+        },
+        {
+          "id": 1162,
+          "value": "View Total Price"
+        },
+        {
+          "id": 1165,
+          "value": "View/Edit Contracts"
+        },
+        {
+          "id": 1170,
+          "value": "View Historical Details"
+        },
+        {
+          "id": 1171,
+          "value": "Allow closing job without confirming findings"
+        },
+        {
+          "id": 1172,
+          "value": "Configure Financing Plans in Mobile"
+        },
+        {
+          "id": 1173,
+          "value": "Edit Invoice Summary in Mobile"
+        },
+        {
+          "id": 1174,
+          "value": "Allow Media Upload from Device Camera Roll"
+        },
+        {
+          "id": 1175,
+          "value": "Search All Projects"
+        },
+        {
+          "id": 1176,
+          "value": "Enable Editing Equipment Systems"
+        },
+        {
+          "id": 1181,
+          "value": "Edit Project Invoice"
+        },
+        {
+          "id": 1186,
+          "value": "Edit Work Summary"
+        },
+        {
+          "id": 1188,
+          "value": "Share Invoice"
+        },
+        {
+          "id": 1189,
+          "value": "Enable Editing Equipment Physical Locations and Service Areas"
+        },
+        {
+          "id": 1540,
+          "value": "Mobile Edit Timesheet Activities"
+        },
+        {
+          "id": 1541,
+          "value": "Mobile Allow Create Manual Timesheets"
+        },
+        {
+          "id": 4113,
+          "value": "Order measurements on job/location"
+        },
+        {
+          "id": 4114,
+          "value": "Upload measurements"
+        },
+        {
+          "id": 10210,
+          "value": "View AI Concierge Agent Workflows"
+        }
+      ],
+      "accountLocked": false,
+      "commissionRate": 0,
+      "currentValue": null,
+      "firstName": null,
+      "lastName": null,
+      "hourlyRate": 0,
+      "jobId": null,
+      "mobilePhone": "2508784602",
+      "outboundCallerId": null,
+      "payrollId": null,
+      "payrollProfileId": 515,
+      "appoitmentId": null,
+      "shiftStart": "08:00:00",
+      "shiftEnd": "18:00:00",
+      "soldByRate": 0,
+      "startDate": null,
+      "status": "Idle",
+      "skills": null,
+      "positions": [
+        "Sales"
+      ],
+      "location": {
+        "latitude": 49.8420181,
+        "longitude": -119.6515541,
+        "coordinatesUpdatedOn": "2025-11-01T00:15:42.4850435Z"
+      },
+      "bio": "Bio",
+      "memo": "Memo"
+    }
+  ]
+}

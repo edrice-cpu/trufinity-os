@@ -1,0 +1,764 @@
+{
+  "page": 1,
+  "pageSize": 5,
+  "hasMore": true,
+  "totalCount": null,
+  "data": [
+    {
+      "summary": "Was called for pipe freeze\n inadequate space between live flowing water and point of where valve needs to be cut in \nWater will not to be shut down to wing so valves can be cut in supply and return lines for cold and hot lines ",
+      "items": null,
+      "customFields": null,
+      "active": true,
+      "discountTotal": "0.00",
+      "importId": null,
+      "exportId": "Bypassed",
+      "materialSkuId": 0,
+      "membershipId": null,
+      "paidOn": null,
+      "invoiceConfiguration": "JobInvoice",
+      "rateSheetId": null,
+      "id": 7928376,
+      "syncStatus": "Exported",
+      "budgetCodeId": null,
+      "referenceNumber": "7928372",
+      "invoiceDate": "2023-10-03T00:00:00Z",
+      "dueDate": "2023-10-03T00:00:00Z",
+      "subTotal": "0.00",
+      "salesTax": "0.00",
+      "salesTaxCode": {
+        "id": 9486,
+        "name": "GST",
+        "taxRate": 0.05
+      },
+      "taxZoneId": 9486,
+      "total": "0.00",
+      "balance": "0.00",
+      "invoiceType": null,
+      "customer": {
+        "id": 7928363,
+        "name": "The Cove (Strata)"
+      },
+      "customerAddress": {
+        "street": "4205 Gellatly Road South",
+        "unit": "",
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 2K3",
+        "country": "Canada"
+      },
+      "location": {
+        "id": 7928368,
+        "name": "The Cove"
+      },
+      "locationAddress": {
+        "street": "4205 Gellatly Road South",
+        "unit": null,
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 2K3",
+        "country": "Canada"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "termName": "Due on Receipt",
+      "createdBy": "edrice_f",
+      "batch": {
+        "id": 7931996,
+        "number": "1",
+        "name": "AutoBatch_Elavon_Settlement_28276187504_2023-10-04"
+      },
+      "depositedOn": "2023-10-17T18:08:12.9265254Z",
+      "createdOn": "2023-10-02T19:28:40.3127029Z",
+      "modifiedOn": "2023-10-17T18:09:41.8989269Z",
+      "adjustmentToId": null,
+      "job": {
+        "id": 7928372,
+        "number": "7928372",
+        "type": "PLUMBING - Service/Repair 🟢P3"
+      },
+      "projectId": null,
+      "royalty": {
+        "status": "Pending",
+        "date": null,
+        "sentOn": null,
+        "memo": null
+      },
+      "employeeInfo": {
+        "id": 24,
+        "name": "edrice_f",
+        "modifiedOn": "2026-07-30T04:17:37.5301632Z"
+      },
+      "commissionEligibilityDate": null,
+      "sentStatus": "Opened",
+      "reviewStatus": "Reviewed",
+      "assignedTo": {
+        "id": 1928,
+        "name": "Ryan Mackenzie"
+      }
+    },
+    {
+      "summary": "Cleaned furnace, no issues. Needs new basket style filter",
+      "items": null,
+      "customFields": null,
+      "active": true,
+      "discountTotal": "0.00",
+      "importId": null,
+      "exportId": "Bypassed",
+      "materialSkuId": 0,
+      "membershipId": null,
+      "paidOn": null,
+      "invoiceConfiguration": "JobInvoice",
+      "rateSheetId": null,
+      "id": 7928435,
+      "syncStatus": "Exported",
+      "budgetCodeId": null,
+      "referenceNumber": "7928431",
+      "invoiceDate": "2023-10-03T00:00:00Z",
+      "dueDate": "2023-10-03T00:00:00Z",
+      "subTotal": "0.00",
+      "salesTax": "0.00",
+      "salesTaxCode": {
+        "id": 9486,
+        "name": "GST",
+        "taxRate": 0.05
+      },
+      "taxZoneId": 9486,
+      "total": "0.00",
+      "balance": "0.00",
+      "invoiceType": null,
+      "customer": {
+        "id": 7928391,
+        "name": "Tim Scott"
+      },
+      "customerAddress": {
+        "street": "826 Brassey Place",
+        "unit": null,
+        "city": "Vernon",
+        "state": "BC",
+        "zip": "V1H 2H7",
+        "country": "Canada"
+      },
+      "location": {
+        "id": 7928652,
+        "name": "Tim Scott"
+      },
+      "locationAddress": {
+        "street": "826 Brassey Place",
+        "unit": null,
+        "city": "Vernon",
+        "state": "BC",
+        "zip": "V1H 2H7",
+        "country": "Canada"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "termName": "Due on Receipt",
+      "createdBy": "edrice_f",
+      "batch": {
+        "id": 7931996,
+        "number": "1",
+        "name": "AutoBatch_Elavon_Settlement_28276187504_2023-10-04"
+      },
+      "depositedOn": "2023-10-17T18:08:12.9265254Z",
+      "createdOn": "2023-10-02T19:43:35.0423755Z",
+      "modifiedOn": "2023-10-17T18:09:41.9326284Z",
+      "adjustmentToId": null,
+      "job": {
+        "id": 7928431,
+        "number": "7928431",
+        "type": "HVAC - Furnace Tune-Up 🔵P4"
+      },
+      "projectId": null,
+      "royalty": {
+        "status": "Pending",
+        "date": null,
+        "sentOn": null,
+        "memo": null
+      },
+      "employeeInfo": {
+        "id": 24,
+        "name": "edrice_f",
+        "modifiedOn": "2026-07-30T04:17:37.5301632Z"
+      },
+      "commissionEligibilityDate": null,
+      "sentStatus": "NotSent",
+      "reviewStatus": "Reviewed",
+      "assignedTo": {
+        "id": 1928,
+        "name": "Ryan Mackenzie"
+      }
+    },
+    {
+      "summary": "Pilot won't stay lit, removed and replaced thermal couple. Furnace from 1998. Recommend replacement in near future. 6010013401 statues",
+      "items": [
+        {
+          "id": 7971022,
+          "description": "Remove, clean and reinstall flame sensor on your furnace. Test all operations.",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "121.50",
+          "type": "Service",
+          "skuName": "CLEANT",
+          "skuId": 7729117,
+          "total": "121.50",
+          "inventory": false,
+          "taxable": false,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Thermocouple Cleaning",
+          "soldHours": 0,
+          "createdOn": "2023-10-10T18:14:14.7609872Z",
+          "modifiedOn": "2023-10-10T18:14:15.2532644Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 8,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 24,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "121.50",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": null
+        },
+        {
+          "id": 7972812,
+          "description": "Travel to and from service location",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "94.00",
+          "type": "Service",
+          "skuName": "DDFEE",
+          "skuId": 7718295,
+          "total": "94.00",
+          "inventory": false,
+          "taxable": false,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Dispatch & Diagnostics Fee",
+          "soldHours": 0,
+          "createdOn": "2023-10-10T18:13:25.4010738Z",
+          "modifiedOn": "2023-10-10T18:13:25.6540669Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 6,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 24,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "94.00",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": null
+        },
+        {
+          "id": 7972940,
+          "description": "Diagnose Issue (Includes up to 1.0 Hrs)",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "119.00",
+          "type": "Service",
+          "skuName": "Diagnostic Fee Adv",
+          "skuId": 7718286,
+          "total": "119.00",
+          "inventory": false,
+          "taxable": false,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Advanced Diagnostics",
+          "soldHours": 0,
+          "createdOn": "2023-10-10T18:13:56.1967659Z",
+          "modifiedOn": "2023-10-10T18:13:56.3395789Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 7,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 24,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "119.00",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": null
+        }
+      ],
+      "customFields": null,
+      "active": true,
+      "discountTotal": "0.00",
+      "importId": null,
+      "exportId": null,
+      "materialSkuId": 0,
+      "membershipId": null,
+      "paidOn": "2023-10-03T00:00:00Z",
+      "invoiceConfiguration": "JobInvoice",
+      "rateSheetId": null,
+      "id": 7928462,
+      "syncStatus": "Exported",
+      "budgetCodeId": null,
+      "referenceNumber": "7928458",
+      "invoiceDate": "2023-10-03T00:00:00Z",
+      "dueDate": "2023-10-03T00:00:00Z",
+      "subTotal": "334.50",
+      "salesTax": "0.00",
+      "salesTaxCode": {
+        "id": 9486,
+        "name": "GST",
+        "taxRate": 0.05
+      },
+      "taxZoneId": 9486,
+      "total": "334.50",
+      "balance": "0.00",
+      "invoiceType": null,
+      "customer": {
+        "id": 7928450,
+        "name": "Crane Wilson"
+      },
+      "customerAddress": {
+        "street": "3115 Cougar Road",
+        "unit": null,
+        "city": null,
+        "state": "BC",
+        "zip": "V4T 2G9",
+        "country": "Canada"
+      },
+      "location": {
+        "id": 7928455,
+        "name": "Crane Wilson"
+      },
+      "locationAddress": {
+        "street": "3115 Cougar Road",
+        "unit": null,
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 2G9",
+        "country": "Canada"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "termName": "Due on Receipt",
+      "createdBy": "edrice_f",
+      "batch": {
+        "id": 7931996,
+        "number": "1",
+        "name": "AutoBatch_Elavon_Settlement_28276187504_2023-10-04"
+      },
+      "depositedOn": "2023-10-17T18:08:12.9265254Z",
+      "createdOn": "2023-10-02T21:04:07.9191054Z",
+      "modifiedOn": "2023-10-17T18:09:48.9972517Z",
+      "adjustmentToId": null,
+      "job": {
+        "id": 7928458,
+        "number": "7928458",
+        "type": "HVAC - Furnace Diagnostic 🟡P2"
+      },
+      "projectId": null,
+      "royalty": {
+        "status": "Pending",
+        "date": null,
+        "sentOn": null,
+        "memo": null
+      },
+      "employeeInfo": {
+        "id": 24,
+        "name": "edrice_f",
+        "modifiedOn": "2026-07-30T04:17:37.5301632Z"
+      },
+      "commissionEligibilityDate": null,
+      "sentStatus": "Opened",
+      "reviewStatus": "Reviewed",
+      "assignedTo": {
+        "id": 1928,
+        "name": "Ryan Mackenzie"
+      }
+    },
+    {
+      "summary": null,
+      "items": null,
+      "customFields": null,
+      "active": true,
+      "discountTotal": "0.00",
+      "importId": null,
+      "exportId": null,
+      "materialSkuId": 0,
+      "membershipId": null,
+      "paidOn": null,
+      "invoiceConfiguration": "JobInvoice",
+      "rateSheetId": null,
+      "id": 7928508,
+      "syncStatus": "Pending",
+      "budgetCodeId": null,
+      "referenceNumber": "7928504",
+      "invoiceDate": null,
+      "dueDate": null,
+      "subTotal": "0.00",
+      "salesTax": "0.00",
+      "salesTaxCode": {
+        "id": 9486,
+        "name": "GST",
+        "taxRate": 0.05
+      },
+      "taxZoneId": 9486,
+      "total": "0.00",
+      "balance": "0.00",
+      "invoiceType": null,
+      "customer": {
+        "id": 7898299,
+        "name": "Scott Christie"
+      },
+      "customerAddress": {
+        "street": "824 Hewetson Avenue",
+        "unit": null,
+        "city": "Kelowna",
+        "state": "BC",
+        "zip": "V1W 5C9",
+        "country": "Canada"
+      },
+      "location": {
+        "id": 7901384,
+        "name": "Scott Christie"
+      },
+      "locationAddress": {
+        "street": "824 Hewetson Avenue",
+        "unit": null,
+        "city": "Kelowna",
+        "state": "BC",
+        "zip": "V1W 5C9",
+        "country": "Canada"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "termName": "",
+      "createdBy": "edrice_f",
+      "batch": null,
+      "depositedOn": null,
+      "createdOn": "2023-10-02T21:31:39.6741147Z",
+      "modifiedOn": "2023-10-02T21:35:31.6280562Z",
+      "adjustmentToId": null,
+      "job": {
+        "id": 7928504,
+        "number": "7928504",
+        "type": "PLUMBING - Service/Repair 🟢P3"
+      },
+      "projectId": 7929049,
+      "royalty": {
+        "status": "Pending",
+        "date": null,
+        "sentOn": null,
+        "memo": null
+      },
+      "employeeInfo": {
+        "id": 24,
+        "name": "edrice_f",
+        "modifiedOn": "2026-07-30T04:17:37.5301632Z"
+      },
+      "commissionEligibilityDate": null,
+      "sentStatus": "NotSent",
+      "reviewStatus": "NeedsReview",
+      "assignedTo": null
+    },
+    {
+      "summary": "Tune up",
+      "items": [
+        {
+          "id": 7931156,
+          "description": "Travel to and from service location",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "94.00",
+          "type": "Service",
+          "skuName": "DDFEE",
+          "skuId": 7718295,
+          "total": "94.00",
+          "inventory": false,
+          "taxable": true,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Dispatch & Diagnostics Fee",
+          "soldHours": 0,
+          "createdOn": "2023-10-03T16:52:48.1357005Z",
+          "modifiedOn": "2023-10-03T16:52:48.8420383Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 1,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 3207,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "94.00",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": 7931120
+        },
+        {
+          "id": 7931159,
+          "description": "- Provide annual maintenance to fireplace.<br/>- Run fireplace to ensure proper working condition.<br/>- Inspect and clean pilot assembly.<br/>- Clean glass<br/>- Vacuum or clean all surfaces and accessible areas of fireplace<br/><br/>NOTE: If the fireplace is in proper working conditions upon completion which will be confirmed by both the technician and the customer, CE Plumbing & Heating is/will not be responsible for any future issues.",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "140.00",
+          "type": "Service",
+          "skuName": "FPTU",
+          "skuId": 7731135,
+          "total": "140.00",
+          "inventory": false,
+          "taxable": true,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Fireplace Tune-Up & Safety Inspection",
+          "soldHours": 0,
+          "createdOn": "2023-10-03T16:52:48.8963133Z",
+          "modifiedOn": "2023-10-03T16:52:49.1757873Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 2,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 3207,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "140.00",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": 7931126
+        },
+        {
+          "id": 7931162,
+          "description": "- Provide annual maintenance to fireplace.<br/>- Run fireplace to ensure proper working condition.<br/>- Inspect and clean pilot assembly.<br/>- Clean glass<br/>- Vacuum or clean all surfaces and accessible areas of fireplace<br/><br/>NOTE: If the fireplace is in proper working conditions upon completion which will be confirmed by both the technician and the customer, CE Plumbing & Heating is/will not be responsible for any future issues.",
+          "quantity": "1.0000000000000000000",
+          "cost": "0.0000000000",
+          "totalCost": "0.00",
+          "budgetCodeId": null,
+          "inventoryLocationId": null,
+          "inventoryLocation": null,
+          "price": "99.00",
+          "type": "Service",
+          "skuName": "FPTU",
+          "skuId": 7731135,
+          "total": "99.00",
+          "inventory": false,
+          "taxable": true,
+          "isChargeable": false,
+          "generalLedgerAccount": {
+            "id": 1056,
+            "name": "Service Sales",
+            "number": "",
+            "type": "Income",
+            "detailType": "Income"
+          },
+          "costOfSaleAccount": null,
+          "assetAccount": null,
+          "membershipTypeId": 0,
+          "itemGroup": null,
+          "displayName": "Fireplace Tune-Up & Safety Inspection",
+          "soldHours": 0,
+          "createdOn": "2023-10-03T16:52:49.1842398Z",
+          "modifiedOn": "2023-10-03T16:52:49.4174579Z",
+          "serviceDate": "2023-10-03T00:00:00Z",
+          "order": 3,
+          "businessUnit": {
+            "id": 966,
+            "name": "HVAC Maintenance"
+          },
+          "createdById": 3207,
+          "displayInAmount": false,
+          "importId": null,
+          "exportId": null,
+          "inventoryStatus": "Pending",
+          "addOn": false,
+          "memberPrice": "99.00",
+          "technicianId": null,
+          "installedEquipmentId": null,
+          "estimateItemId": 7930875
+        }
+      ],
+      "customFields": null,
+      "active": true,
+      "discountTotal": "0.00",
+      "importId": null,
+      "exportId": null,
+      "materialSkuId": 0,
+      "membershipId": null,
+      "paidOn": "2023-10-03T00:00:00Z",
+      "invoiceConfiguration": "JobInvoice",
+      "rateSheetId": null,
+      "id": 7928539,
+      "syncStatus": "Exported",
+      "budgetCodeId": null,
+      "referenceNumber": "7928535",
+      "invoiceDate": "2023-10-03T00:00:00Z",
+      "dueDate": "2023-10-03T00:00:00Z",
+      "subTotal": "333.00",
+      "salesTax": "16.65",
+      "salesTaxCode": {
+        "id": 9486,
+        "name": "GST",
+        "taxRate": 0.05
+      },
+      "taxZoneId": 9486,
+      "total": "349.65",
+      "balance": "0.00",
+      "invoiceType": null,
+      "customer": {
+        "id": 7928527,
+        "name": "John Shaw"
+      },
+      "customerAddress": {
+        "street": "2348 Tallus Green Crescent",
+        "unit": null,
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 3K4",
+        "country": "Canada"
+      },
+      "location": {
+        "id": 7928532,
+        "name": "John Shaw"
+      },
+      "locationAddress": {
+        "street": "2348 Tallus Green Crescent",
+        "unit": null,
+        "city": "West Kelowna",
+        "state": "BC",
+        "zip": "V4T 3K4",
+        "country": "Canada"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "termName": "Due on Receipt",
+      "createdBy": "edrice_f",
+      "batch": {
+        "id": 7931996,
+        "number": "1",
+        "name": "AutoBatch_Elavon_Settlement_28276187504_2023-10-04"
+      },
+      "depositedOn": "2023-10-17T18:08:12.9265254Z",
+      "createdOn": "2023-10-02T19:15:14.9705501Z",
+      "modifiedOn": "2023-10-17T18:09:49.0541501Z",
+      "adjustmentToId": null,
+      "job": {
+        "id": 7928535,
+        "number": "7928535",
+        "type": "HVAC - Fireplace Tune-Up 🔵P4"
+      },
+      "projectId": null,
+      "royalty": {
+        "status": "Pending",
+        "date": null,
+        "sentOn": null,
+        "memo": null
+      },
+      "employeeInfo": {
+        "id": 24,
+        "name": "edrice_f",
+        "modifiedOn": "2026-07-30T04:17:37.5301632Z"
+      },
+      "commissionEligibilityDate": null,
+      "sentStatus": "NotSent",
+      "reviewStatus": "Reviewed",
+      "assignedTo": null
+    }
+  ]
+}

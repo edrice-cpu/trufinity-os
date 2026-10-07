@@ -1,0 +1,258 @@
+{
+  "page": 1,
+  "pageSize": 5,
+  "hasMore": true,
+  "totalCount": null,
+  "data": [
+    {
+      "active": true,
+      "appliedTo": [
+        {
+          "appliedAmount": "349.65",
+          "appliedBy": "TruCraigB",
+          "appliedId": 7930898,
+          "appliedOn": "2023-10-03T00:00:00Z",
+          "appliedTo": 7928539,
+          "appliedToReferenceNumber": "7928535"
+        }
+      ],
+      "authCode": "035490",
+      "batch": {
+        "id": 7931996,
+        "number": "1",
+        "name": "AutoBatch_Elavon_Settlement_28276187504_2023-10-04"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "checkNumber": null,
+      "createdBy": "TruCraigB",
+      "createdOn": "2023-10-03T18:11:16.7862859Z",
+      "customer": {
+        "id": 7928527,
+        "name": "John Shaw"
+      },
+      "customFields": null,
+      "date": "2023-10-03T00:00:00Z",
+      "deposit": null,
+      "generalLedgerAccount": {
+        "id": 63,
+        "name": "Undeposited Fundsdeactivated",
+        "number": "1099",
+        "type": "Other Current Assetdeactivated",
+        "detailType": "Assetdeactivated"
+      },
+      "id": 7930897,
+      "memo": "",
+      "modifiedOn": "2023-10-17T18:09:49.1310316Z",
+      "referenceNumber": null,
+      "refundedPaymentId": null,
+      "syncStatus": "Exported",
+      "total": "349.65",
+      "type": "Visa",
+      "typeId": "1088",
+      "unappliedAmount": "0.00"
+    },
+    {
+      "active": true,
+      "appliedTo": [
+        {
+          "appliedAmount": "334.50",
+          "appliedBy": "CESheldonS",
+          "appliedId": 7933488,
+          "appliedOn": "2023-10-03T00:00:00Z",
+          "appliedTo": 7928462,
+          "appliedToReferenceNumber": "7928458"
+        }
+      ],
+      "authCode": "07989J",
+      "batch": {
+        "id": 7941968,
+        "number": "3",
+        "name": "AutoBatch_Elavon_Settlement_27277758104_2023-10-05"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "checkNumber": null,
+      "createdBy": "CESheldonS",
+      "createdOn": "2023-10-03T23:19:31.8116083Z",
+      "customer": {
+        "id": 7928450,
+        "name": "Crane Wilson"
+      },
+      "customFields": null,
+      "date": "2023-10-03T00:00:00Z",
+      "deposit": null,
+      "generalLedgerAccount": {
+        "id": 63,
+        "name": "Undeposited Fundsdeactivated",
+        "number": "1099",
+        "type": "Other Current Assetdeactivated",
+        "detailType": "Assetdeactivated"
+      },
+      "id": 7933487,
+      "memo": "",
+      "modifiedOn": "2023-10-24T16:57:28.7276577Z",
+      "referenceNumber": null,
+      "refundedPaymentId": null,
+      "syncStatus": "Exported",
+      "total": "334.50",
+      "type": "MasterCard",
+      "typeId": "1089",
+      "unappliedAmount": "0.00"
+    },
+    {
+      "active": true,
+      "appliedTo": [
+        {
+          "appliedAmount": "3145.12",
+          "appliedBy": "CEJulianM",
+          "appliedId": 7937840,
+          "appliedOn": "2023-10-04T00:00:00Z",
+          "appliedTo": 7931058,
+          "appliedToReferenceNumber": "7931054"
+        }
+      ],
+      "authCode": "034617",
+      "batch": {
+        "id": 7941968,
+        "number": "3",
+        "name": "AutoBatch_Elavon_Settlement_27277758104_2023-10-05"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "checkNumber": null,
+      "createdBy": "CEJulianM",
+      "createdOn": "2023-10-04T20:14:47.3804839Z",
+      "customer": {
+        "id": 7897037,
+        "name": "James Burgess"
+      },
+      "customFields": null,
+      "date": "2023-10-04T00:00:00Z",
+      "deposit": null,
+      "generalLedgerAccount": {
+        "id": 63,
+        "name": "Undeposited Fundsdeactivated",
+        "number": "1099",
+        "type": "Other Current Assetdeactivated",
+        "detailType": "Assetdeactivated"
+      },
+      "id": 7937839,
+      "memo": "",
+      "modifiedOn": "2023-10-24T16:57:28.7679755Z",
+      "referenceNumber": null,
+      "refundedPaymentId": null,
+      "syncStatus": "Exported",
+      "total": "3145.12",
+      "type": "Visa",
+      "typeId": "1088",
+      "unappliedAmount": "0.00"
+    },
+    {
+      "active": true,
+      "appliedTo": [
+        {
+          "appliedAmount": "513.45",
+          "appliedBy": "CESheldonS",
+          "appliedId": 7939129,
+          "appliedOn": "2023-10-04T00:00:00Z",
+          "appliedTo": 7931405,
+          "appliedToReferenceNumber": "7931401"
+        }
+      ],
+      "authCode": "06244J",
+      "batch": {
+        "id": 7941968,
+        "number": "3",
+        "name": "AutoBatch_Elavon_Settlement_27277758104_2023-10-05"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "checkNumber": null,
+      "createdBy": "CESheldonS",
+      "createdOn": "2023-10-04T21:22:06.9230081Z",
+      "customer": {
+        "id": 7931027,
+        "name": "Pat Dawson "
+      },
+      "customFields": null,
+      "date": "2023-10-04T00:00:00Z",
+      "deposit": null,
+      "generalLedgerAccount": {
+        "id": 63,
+        "name": "Undeposited Fundsdeactivated",
+        "number": "1099",
+        "type": "Other Current Assetdeactivated",
+        "detailType": "Assetdeactivated"
+      },
+      "id": 7939128,
+      "memo": "",
+      "modifiedOn": "2023-10-24T16:57:28.7850037Z",
+      "referenceNumber": null,
+      "refundedPaymentId": null,
+      "syncStatus": "Exported",
+      "total": "513.45",
+      "type": "MasterCard",
+      "typeId": "1089",
+      "unappliedAmount": "0.00"
+    },
+    {
+      "active": true,
+      "appliedTo": [
+        {
+          "appliedAmount": "4053.80",
+          "appliedBy": "CENassimB",
+          "appliedId": 7939277,
+          "appliedOn": "2023-10-04T00:00:00Z",
+          "appliedTo": 7933668,
+          "appliedToReferenceNumber": "7933664"
+        }
+      ],
+      "authCode": "06025Z",
+      "batch": {
+        "id": 7941968,
+        "number": "3",
+        "name": "AutoBatch_Elavon_Settlement_27277758104_2023-10-05"
+      },
+      "businessUnit": {
+        "id": 966,
+        "name": "HVAC Maintenance"
+      },
+      "checkNumber": "0698",
+      "createdBy": "CENassimB",
+      "createdOn": "2023-10-04T20:41:59.3610526Z",
+      "customer": {
+        "id": 7933656,
+        "name": "Rick Ott "
+      },
+      "customFields": null,
+      "date": "2023-10-04T00:00:00Z",
+      "deposit": null,
+      "generalLedgerAccount": {
+        "id": 63,
+        "name": "Undeposited Fundsdeactivated",
+        "number": "1099",
+        "type": "Other Current Assetdeactivated",
+        "detailType": "Assetdeactivated"
+      },
+      "id": 7939276,
+      "memo": "",
+      "modifiedOn": "2023-10-24T16:57:28.8228945Z",
+      "referenceNumber": "0698",
+      "refundedPaymentId": null,
+      "syncStatus": "Exported",
+      "total": "4053.80",
+      "type": "MasterCard",
+      "typeId": "1089",
+      "unappliedAmount": "0.00"
+    }
+  ]
+}
