@@ -1,7 +1,9 @@
 import type { Knex } from 'knex';
 import { db } from '../../database';
+import { logger } from '../../utils/logger';
 import type { GmailMailboxConfig } from './types';
 import { KnexEmailClassificationRepository, type ClassificationPersistenceInput } from './classification.repository';
+import { workItemCorrelationService, type WorkItemCorrelationService } from './work-item-correlation.service';
 
 export interface GmailHistoricalMailbox {
   id: string;
@@ -54,7 +56,10 @@ const stableJson = (value: unknown): string => {
 export const TOMBSTONE_PAYLOAD: Record<string, unknown> = Object.freeze({});
 
 export class KnexGmailHistoricalRepository implements GmailHistoricalRepository {
-  public constructor(private readonly database: Knex = db) {}
+  public constructor(
+    private readonly database: Knex = db,
+    private readonly correlationService: WorkItemCorrelationService = workItemCorrelationService,
+  ) {}
 
   public async withMailboxLock<T>(mailboxAddress: string, work: () => Promise<T>): Promise<T> {
     const connection = await this.database.client.acquireConnection();
@@ -113,6 +118,8 @@ export class KnexGmailHistoricalRepository implements GmailHistoricalRepository 
 
   public async commitBatch(mailbox: GmailHistoricalMailbox, syncRunId: string, messages: GmailHistoricalMessageWrite[], errors: GmailHistoricalError[], classifications: ClassificationPersistenceInput[] = []): Promise<number> {
     let persisted = 0;
+    const newWorkItemIds: string[] = [];
+
     await this.database.transaction(async (trx) => {
       for (const message of messages) {
         const isDeleted = message.isDeleted ?? false;
@@ -144,8 +151,24 @@ export class KnexGmailHistoricalRepository implements GmailHistoricalRepository 
         })));
       }
       const classificationRepository = new KnexEmailClassificationRepository(this.database);
-      for (const classification of classifications) await classificationRepository.persistInTransaction(trx, classification);
+      for (const classification of classifications) {
+        const result = await classificationRepository.persistInTransaction(trx, classification);
+        // Collect newly created (non-duplicate) work item IDs for post-commit correlation.
+        if (result.workItemId && !result.duplicate) newWorkItemIds.push(result.workItemId);
+      }
     });
+
+    // Run customer correlation AFTER the transaction commits, so a correlation
+    // failure cannot roll back the classification or work item creation.
+    for (const workItemId of newWorkItemIds) {
+      try {
+        await this.correlationService.correlateWorkItem(workItemId);
+      } catch (err) {
+        // Log and continue — correlation is best-effort enrichment, not a sync requirement.
+        logger.warn(`[WorkItemCorrelation] Failed to correlate work item ${workItemId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     return persisted;
   }
 

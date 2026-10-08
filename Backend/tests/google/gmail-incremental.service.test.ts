@@ -428,7 +428,39 @@ describe('GmailIncrementalSyncService', () => {
     });
   });
 
-  it('18. scheduler overlap prevention where practical', async () => {
-    expect(true).toBe(true);
+  it('18. scheduler overlap prevention: second runCycle call while first is active returns same promise, not a new execution', async () => {
+    const { GmailIncrementalScheduler } = await import('../../src/modules/google/gmail-incremental.scheduler');
+    let resolveFirst!: () => void;
+    let callCount = 0;
+    const firstCycleGate = new Promise<void>((resolve) => { resolveFirst = resolve; });
+
+    const scheduler = new GmailIncrementalScheduler({
+      intervalMs: 300_000,
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+      runMailboxes: async () => {
+        callCount++;
+        await firstCycleGate;
+        return { completed: [], failed: [] };
+      },
+    });
+
+    const first = scheduler.runCycle();
+    const second = scheduler.runCycle();
+
+    // Both calls return the same promise — no second execution was started
+    expect(first).toBe(second);
+    expect(callCount).toBe(1);
+
+    // Complete the first cycle
+    resolveFirst();
+    await first;
+    expect(callCount).toBe(1);
+
+    // After the first cycle resolves, a fresh runCycle call CAN start a new execution
+    const third = scheduler.runCycle();
+    expect(third).not.toBe(first);
+    resolveFirst(); // already resolved — gate is open for subsequent calls
+    await third;
+    expect(callCount).toBe(2);
   });
 });

@@ -6,7 +6,7 @@ export const sectionReady = {
   demandAlerts: true,
   briefHeader: true,
   scorecard: false,
-  escalations: false,
+  escalations: true,
   redFlags: false,
   responsiveness: false,
   marketing: false,

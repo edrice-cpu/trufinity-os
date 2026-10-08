@@ -3,6 +3,8 @@ import { db } from '../database';
 import { logger } from '../utils/logger';
 import { GmailIncrementalScheduler, validateGmailSyncInterval, type GmailIncrementalSchedulerLogger } from '../modules/google/gmail-incremental.scheduler';
 import { gmailIncrementalSyncService } from '../modules/google/gmail-incremental.service';
+import { SmtpWorkItemNotifier } from '../modules/google/work-item-notifier';
+import { assertGoogleCredentialsConfigured } from '../modules/google/google-auth.service';
 
 export interface GmailWorkerDatabase { raw(query: string): Promise<unknown>; destroy(): Promise<unknown>; }
 export interface GmailWorkerConfig { pollIntervalMs: number; }
@@ -11,6 +13,8 @@ export interface GmailWorkerDependencies {
   database: GmailWorkerDatabase;
   config: GmailWorkerConfig;
   runMailboxes(): Promise<{ completed: { mailboxAddress: string }[]; failed: { mailboxAddress: string }[] }>;
+  /** Called at the start of every poll cycle to retry stuck/failed notifications. */
+  recoverNotifications(): Promise<number>;
   logger: GmailIncrementalSchedulerLogger;
   createScheduler(runMailboxes: () => Promise<{ completed: { mailboxAddress: string }[]; failed: { mailboxAddress: string }[] }>, intervalMs: number): GmailWorkerScheduler;
   registerShutdown(handler: (signal: 'SIGTERM' | 'SIGINT') => void): () => void;
@@ -26,8 +30,24 @@ export const startGmailIncrementalWorker = async (dependencies: GmailWorkerDepen
   dependencies.logger.info('Google Workspace Gmail incremental worker database connectivity verified.');
   
   const scheduler = dependencies.createScheduler(
-    () => dependencies.runMailboxes(),
-    dependencies.config.pollIntervalMs
+    async () => {
+      // Run notification recovery first so stuck/failed deliveries from any
+      // previous cycle are retried before the next batch of work items is
+      // classified. Errors here must not abort the mailbox sync.
+      try {
+        const recovered = await dependencies.recoverNotifications();
+        if (recovered > 0) {
+          dependencies.logger.info(`Google Workspace Gmail incremental worker recovered ${recovered} pending notification(s).`);
+        }
+      } catch (err) {
+        // Log only the error constructor name to avoid leaking any credential
+        // or content material that might appear in SMTP/DB error messages.
+        const kind = err instanceof Error ? err.constructor.name : typeof err;
+        dependencies.logger.error(`Google Workspace Gmail incremental worker notification recovery failed (${kind}); check application logs for details.`);
+      }
+      return dependencies.runMailboxes();
+    },
+    dependencies.config.pollIntervalMs,
   );
   
   let shutdownPromise: Promise<void> | undefined;
@@ -68,15 +88,23 @@ const registerProcessShutdown = (handler: (signal: 'SIGTERM' | 'SIGINT') => void
 
 const main = async (): Promise<void> => {
   try {
+    assertGoogleCredentialsConfigured({
+      projectId: env.GOOGLE_CLOUD_PROJECT_ID,
+      serviceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      serviceAccountPrivateKey: env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+      adminDelegatedUser: env.GOOGLE_ADMIN_DELEGATED_USER,
+    });
+    const notifier = new SmtpWorkItemNotifier();
     await startGmailIncrementalWorker({
       database: db,
       config: { pollIntervalMs: env.GOOGLE_GMAIL_SYNC_INTERVAL_MS },
+      recoverNotifications: () => notifier.recoverPendingNotifications(),
       runMailboxes: async () => {
-         const result = await gmailIncrementalSyncService.runAllEligibleMailboxes();
-         return {
-           completed: result.completed.map(c => ({ mailboxAddress: c.mailboxAddress })),
-           failed: result.failed.map(f => ({ mailboxAddress: f.mailboxAddress }))
-         };
+        const result = await gmailIncrementalSyncService.runAllEligibleMailboxes();
+        return {
+          completed: result.completed.map(c => ({ mailboxAddress: c.mailboxAddress })),
+          failed: result.failed.map(f => ({ mailboxAddress: f.mailboxAddress })),
+        };
       },
       logger,
       createScheduler: (runMailboxes, intervalMs) => new GmailIncrementalScheduler({ runMailboxes, intervalMs, logger }),
