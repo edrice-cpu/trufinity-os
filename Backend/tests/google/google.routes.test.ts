@@ -21,7 +21,7 @@ jest.mock('../../src/config/env', () => ({
     QBO_TOKEN_URL: '', QBO_REVOKE_URL: '', QBO_DISCONNECT_AUTH_TOKEN: '', QBO_API_BASE_URL: '',
     QBO_CDC_POLL_INTERVAL_MS: 900000,
     GOOGLE_CLOUD_PROJECT_ID: 'test', GOOGLE_SERVICE_ACCOUNT_EMAIL: '', GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: '',
-    GOOGLE_ADMIN_DELEGATED_USER: '', GOOGLE_GMAIL_DELEGATED_USER: '',
+    GOOGLE_ADMIN_DELEGATED_USER: '',
     GOOGLE_GMAIL_HISTORICAL_DAYS: 365, GOOGLE_GMAIL_SYNC_INTERVAL_MS: 900000,
     GOOGLE_GMAIL_APPROVED_CONTENT_MAILBOXES: ['service@trufinity.ca'],
     GMAIL_CLASSIFIER_ENABLED: false, GMAIL_CLASSIFIER_PROVIDER: 'anthropic',
@@ -83,6 +83,11 @@ const sampleWorkItem = {
   acknowledgedAt: null,
   resolvedAt: null,
   resolutionNote: null,
+  dismissedAt: null,
+  dismissedByUserId: null,
+  dismissalReason: null,
+  unifiedCustomerId: null,
+  customerDisplayName: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
   classificationId: 'c1c1c1c1-0000-0000-0000-000000000001',
@@ -418,6 +423,119 @@ describe('privacy and response contract', () => {
       .post(`/api/google/work-items/${sampleWorkItem.id}/resolve`)
       .send({ resolution_note: 'Done.' });
     expect(res.body.data).toHaveProperty('sourceUrl');
+  });
+});
+
+describe('POST /api/google/work-items/:id/not-a-problem', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  const dismissedItem = {
+    ...sampleWorkItem,
+    workflowStatus: 'NOT_A_PROBLEM' as const,
+    dismissedAt: new Date('2026-10-07T09:00:00Z'),
+    dismissedByUserId: 'user-1',
+    dismissalReason: 'Automated noise from monitoring system.',
+  };
+
+  it('dismisses an open work item without a reason', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    const res = await request(app).post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+    expect(res.body.data.workflowStatus).toBe('NOT_A_PROBLEM');
+  });
+
+  it('dismisses with an optional reason and persists it', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    const res = await request(app)
+      .post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`)
+      .send({ dismissal_reason: 'Automated noise from monitoring system.' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.workflowStatus).toBe('NOT_A_PROBLEM');
+    expect(mockService.dismissWorkItem).toHaveBeenCalledWith(
+      sampleWorkItem.id,
+      'user-1',
+      'Automated noise from monitoring system.',
+    );
+  });
+
+  it('actor id comes from req.auth.user.id — never from the request body', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    await request(app)
+      .post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`)
+      .send({ dismissal_reason: 'ok', actor_user_id: 'attacker-injected-id' });
+
+    expect(mockService.dismissWorkItem).toHaveBeenCalledWith(
+      sampleWorkItem.id,
+      'user-1', // must be the auth session value, not the body value
+      'ok',
+    );
+  });
+
+  it('is idempotent — dismissing an already-dismissed item returns 200', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    const res = await request(app).post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.workflowStatus).toBe('NOT_A_PROBLEM');
+  });
+
+  it('returns 404 for unknown work item', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(null);
+
+    const res = await request(app).post('/api/google/work-items/00000000-0000-0000-0000-000000000000/not-a-problem').send({});
+    expect(res.status).toBe(404);
+    expect(res.body.status).toBe('error');
+  });
+
+  it('returns 404 for RESOLVED item — terminal status must not be overwritten', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(null);
+
+    const res = await request(app).post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`).send({});
+    expect(res.status).toBe(404);
+    expect(res.body.status).toBe('error');
+  });
+
+  it('returns 404 for non-UUID id', async () => {
+    const res = await request(app).post('/api/google/work-items/not-a-uuid/not-a-problem').send({});
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 when dismissal_reason exceeds 500 chars', async () => {
+    const res = await request(app)
+      .post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`)
+      .send({ dismissal_reason: 'x'.repeat(501) });
+    expect(res.status).toBe(400);
+    expect(res.body.status).toBe('error');
+    expect(res.body.errors).toBeDefined();
+  });
+
+  it('whitespace-only reason is coerced to null', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    await request(app)
+      .post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`)
+      .send({ dismissal_reason: '   ' });
+    expect(mockService.dismissWorkItem).toHaveBeenCalledWith(sampleWorkItem.id, 'user-1', null);
+  });
+
+  it('sourceUrl is present on dismiss response', async () => {
+    (mockService.dismissWorkItem as jest.MockedFunction<typeof mockService.dismissWorkItem>)
+      .mockResolvedValue(dismissedItem);
+
+    const res = await request(app).post(`/api/google/work-items/${sampleWorkItem.id}/not-a-problem`).send({});
+    expect(res.body.data).toHaveProperty('sourceUrl');
+    expect(res.body.data.sourceUrl).toContain('mail.google.com');
   });
 });
 

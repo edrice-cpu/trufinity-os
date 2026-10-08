@@ -127,6 +127,23 @@ export class GoogleWorkspaceAuthService {
   }
 }
 
+/**
+ * Throws a clear configuration error if any required Google Workspace credential
+ * is missing or whitespace-only. Call this at worker startup to fail fast rather
+ * than discovering misconfiguration on the first API call.
+ */
+export const assertGoogleCredentialsConfigured = (config: GoogleWorkspaceAuthConfig): void => {
+  if (!config.serviceAccountEmail.trim()) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is required but not configured. Set it in the environment before starting the Google Workspace worker.');
+  }
+  if (!config.serviceAccountPrivateKey.trim()) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is required but not configured. Set it in the environment before starting the Google Workspace worker.');
+  }
+  if (!config.adminDelegatedUser.trim()) {
+    throw new Error('GOOGLE_ADMIN_DELEGATED_USER is required but not configured. Set it in the environment before starting the Google Workspace worker.');
+  }
+};
+
 export const googleWorkspaceAuthService = new GoogleWorkspaceAuthService({
   projectId: env.GOOGLE_CLOUD_PROJECT_ID,
   serviceAccountEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,

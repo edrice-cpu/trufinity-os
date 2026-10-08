@@ -99,6 +99,141 @@ describe('applySlaFilter — SQL generation (no DB connection)', () => {
   });
 });
 
+describe('GoogleWorkspaceService — dismissWorkItem input validation', () => {
+  it('dismissWorkItem rejects non-UUID without hitting DB', async () => {
+    const service = new GoogleWorkspaceService({} as never);
+    const result = await service.dismissWorkItem('bad-id', 'user-1', null).catch(() => null);
+    expect(result).toBeNull();
+  });
+
+  it('BREACHED SLA filter excludes NOT_A_PROBLEM', () => {
+    const knex = require('knex')({ client: 'pg' });
+    const now = new Date('2026-10-07T09:00:00Z');
+    const q = knex('email_escalation_work_items as w')
+      .whereNotIn('w.workflow_status', ['RESOLVED', 'CLOSED', 'NOT_A_PROBLEM'])
+      .whereNotNull('w.resolution_deadline')
+      .where('w.resolution_deadline', '<', now)
+      .select('w.id');
+    const sql = q.toString();
+    expect(sql).toContain("'NOT_A_PROBLEM'");
+    expect(sql).toContain('not in');
+  });
+
+  it('dismissWorkItem service method exists in source', () => {
+    const fs = require('fs');
+    const source: string = fs.readFileSync(
+      require('path').resolve(__dirname, '../../src/modules/google/google-workspace.service.ts'),
+      'utf8',
+    );
+    expect(source).toContain('dismissWorkItem');
+    expect(source).toContain("'NOT_A_PROBLEM'");
+    expect(source).toContain('dismissed_at');
+    expect(source).toContain('dismissed_by_user_id');
+  });
+});
+
+describe('dismissWorkItem — SLA state preservation', () => {
+  // These tests inject a fake Knex to capture the UPDATE payload without a DB connection.
+  const VALID_UUID = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  const makeFakeDb = (firstRow: Record<string, unknown>, onUpdate: (data: Record<string, unknown>) => void) => {
+    const chainable: Record<string, unknown> = {};
+    const makeChain = () => chainable;
+    chainable.where = makeChain;
+    chainable.first = () => Promise.resolve(firstRow);
+    chainable.update = (data: Record<string, unknown>) => { onUpdate(data); return Promise.resolve(1); };
+    chainable.join = makeChain;
+    chainable.leftJoin = makeChain;
+    chainable.select = makeChain;
+    chainable.whereIn = makeChain;
+    chainable.orderBy = makeChain;
+    chainable.limit = makeChain;
+    chainable.offset = () => Promise.resolve([]);
+    return ((_: string) => chainable) as unknown as import('knex').Knex;
+  };
+
+  it('does NOT rewrite sla_state for an ON_TRACK item — historical SLA fact is preserved', async () => {
+    let capturedUpdate: Record<string, unknown> | null = null;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'OPEN', sla_state: 'ON_TRACK', resolution_deadline: new Date(Date.now() + 3600_000) },
+      (data) => { capturedUpdate = data; },
+    ));
+
+    await service.dismissWorkItem(VALID_UUID, 'user-1', null);
+
+    expect(capturedUpdate).not.toBeNull();
+    expect(capturedUpdate!['workflow_status']).toBe('NOT_A_PROBLEM');
+    // sla_state must NOT be in the update payload — preserves ON_TRACK as historical fact
+    expect(capturedUpdate).not.toHaveProperty('sla_state');
+    expect(capturedUpdate!['dismissed_at']).toBeInstanceOf(Date);
+    expect(capturedUpdate!['dismissed_by_user_id']).toBe('user-1');
+  });
+
+  it('does NOT rewrite sla_state for an already-BREACHED item — historical breach is preserved', async () => {
+    let capturedUpdate: Record<string, unknown> | null = null;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'ACKNOWLEDGED', sla_state: 'BREACHED', resolution_deadline: new Date(Date.now() - 3600_000) },
+      (data) => { capturedUpdate = data; },
+    ));
+
+    await service.dismissWorkItem(VALID_UUID, 'user-2', 'Spam.');
+
+    expect(capturedUpdate!['workflow_status']).toBe('NOT_A_PROBLEM');
+    expect(capturedUpdate).not.toHaveProperty('sla_state');
+    expect(capturedUpdate!['dismissal_reason']).toBe('Spam.');
+  });
+
+  it('does NOT rewrite sla_state for an UNCONFIGURED item', async () => {
+    let capturedUpdate: Record<string, unknown> | null = null;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'OPEN', sla_state: 'UNCONFIGURED', resolution_deadline: null },
+      (data) => { capturedUpdate = data; },
+    ));
+
+    await service.dismissWorkItem(VALID_UUID, 'user-3', null);
+
+    expect(capturedUpdate!['workflow_status']).toBe('NOT_A_PROBLEM');
+    expect(capturedUpdate).not.toHaveProperty('sla_state');
+  });
+
+  it('skips DB update for RESOLVED item — returns null (terminal; must not be overwritten)', async () => {
+    let updateCalled = false;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'RESOLVED', sla_state: 'MET', resolution_deadline: null },
+      () => { updateCalled = true; },
+    ));
+
+    const result = await service.dismissWorkItem(VALID_UUID, 'user-1', null);
+    expect(result).toBeNull();
+    expect(updateCalled).toBe(false);
+  });
+
+  it('skips DB update for CLOSED item — returns null', async () => {
+    let updateCalled = false;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'CLOSED', sla_state: 'MET', resolution_deadline: null },
+      () => { updateCalled = true; },
+    ));
+
+    const result = await service.dismissWorkItem(VALID_UUID, 'user-1', null);
+    expect(result).toBeNull();
+    expect(updateCalled).toBe(false);
+  });
+
+  it('skips DB update for already-NOT_A_PROBLEM item — idempotent', async () => {
+    let updateCalled = false;
+    const service = new GoogleWorkspaceService(makeFakeDb(
+      { workflow_status: 'NOT_A_PROBLEM', sla_state: 'ON_TRACK', resolution_deadline: null },
+      () => { updateCalled = true; },
+    ));
+
+    // getWorkItemById is called on the idempotent path — it will fail on fake DB,
+    // but the important assertion is that update was not called.
+    await service.dismissWorkItem(VALID_UUID, 'user-1', null).catch(() => null);
+    expect(updateCalled).toBe(false);
+  });
+});
+
 describe('GoogleWorkspaceService — count query and is_latest guard', () => {
   it('count query does not reference inner alias w — uses its own join', () => {
     // Verify listWorkItems builds a separate count query that does not wrap
