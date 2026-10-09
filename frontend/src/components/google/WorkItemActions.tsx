@@ -9,7 +9,8 @@ import type { WorkItem } from "@/lib/api/google";
 
 const MAX_NOTE = 2000;
 
-export function WorkItemActions({ item }: { item: WorkItem }) {
+/** `compact` = icon-only buttons (label kept as tooltip + accessible name) for dense tables. */
+export function WorkItemActions({ item, compact = false }: { item: WorkItem; compact?: boolean }) {
   const canAcknowledge = item.workflowStatus === "OPEN";
   const canClose = item.workflowStatus === "OPEN" || item.workflowStatus === "ACKNOWLEDGED";
 
@@ -25,9 +26,10 @@ export function WorkItemActions({ item }: { item: WorkItem }) {
           title="Acknowledge (claim) this item"
           fallbackError="Failed to acknowledge."
           className="text-info hover:bg-info-soft"
+          compact={compact}
         />
       )}
-      {canClose && <ResolveButton id={item.id} />}
+      {canClose && <ResolveButton id={item.id} compact={compact} />}
       {canClose && (
         <ActionButton
           action={() => dismissWorkItemAction(item.id)}
@@ -36,6 +38,7 @@ export function WorkItemActions({ item }: { item: WorkItem }) {
           title="Not a problem — logged and used to tune the classifier"
           fallbackError="Failed to mark as not a problem."
           className="text-foreground/60 hover:bg-surface-muted"
+          compact={compact}
         />
       )}
     </div>
@@ -50,6 +53,7 @@ function ActionButton({
   title,
   fallbackError,
   className,
+  compact,
 }: {
   action: () => Promise<{ ok: boolean; message?: string }>;
   icon: "check" | "x";
@@ -57,6 +61,7 @@ function ActionButton({
   title: string;
   fallbackError: string;
   className: string;
+  compact: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -80,13 +85,16 @@ function ActionButton({
         onClick={handleClick}
         disabled={pending}
         title={title}
-        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${className}`}
+        aria-label={compact ? label : undefined}
+        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle text-xs font-medium transition disabled:opacity-50 ${
+          compact ? "h-7 w-7 justify-center" : "px-2.5 py-1"
+        } ${className}`}
       >
         {pending ? <Spinner className="h-3 w-3" /> : <Icon name={icon} className="h-3.5 w-3.5" />}
-        {label}
+        {!compact && label}
       </button>
       {error && (
-        <span className="absolute left-0 top-full mt-1 z-10 whitespace-nowrap rounded bg-danger px-2 py-1 text-xs text-white">
+        <span className="absolute right-0 top-full mt-1 z-10 whitespace-nowrap rounded bg-danger px-2 py-1 text-xs text-white">
           {error}
         </span>
       )}
@@ -94,7 +102,7 @@ function ActionButton({
   );
 }
 
-function ResolveButton({ id }: { id: string }) {
+function ResolveButton({ id, compact }: { id: string; compact: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -102,10 +110,13 @@ function ResolveButton({ id }: { id: string }) {
       <button
         onClick={() => setOpen(true)}
         title="Resolve this item (requires a note)"
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium text-success hover:bg-success-soft transition"
+        aria-label={compact ? "Resolve" : undefined}
+        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle text-xs font-medium text-success hover:bg-success-soft transition ${
+          compact ? "h-7 w-7 justify-center" : "px-2.5 py-1"
+        }`}
       >
         <Icon name="check-circle" className="h-3.5 w-3.5" />
-        Resolve
+        {!compact && "Resolve"}
       </button>
       {open && <ResolveModal id={id} onClose={() => setOpen(false)} />}
     </>

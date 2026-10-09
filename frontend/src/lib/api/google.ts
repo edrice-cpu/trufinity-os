@@ -91,13 +91,25 @@ function buildQuery(filters: WorkItemListFilters): string {
   return qs ? `?${qs}` : "";
 }
 
+/** Surfaces the backend status in the Next.js server log; the UI only gets the generic message. */
+function logFailure(
+  call: string,
+  response: { status: number; data: unknown },
+  message: string,
+): { kind: "error"; message: string } {
+  const backendMessage = (response.data as { message?: string } | null)?.message;
+  console.error(`[work-items:${call}] backend responded ${response.status}${backendMessage ? `: ${backendMessage}` : ""}`);
+  return { kind: "error", message };
+}
+
 export async function getWorkItemStats(token: string): Promise<WorkItemStatsFetchResult> {
   try {
     const response = await backendFetch<{ data: WorkItemStats }>("/api/google/work-items/stats", { token });
     if (response.status === 401) return { kind: "unauthenticated" };
-    if (!response.ok || !response.data?.data) return { kind: "error", message: "Failed to load stats." };
+    if (!response.ok || !response.data?.data) return logFailure("stats", response, "Failed to load stats.");
     return { kind: "ok", data: response.data.data };
-  } catch {
+  } catch (err) {
+    console.error("[work-items] backend unreachable:", err instanceof Error ? err.message : err);
     return { kind: "error", message: "Unable to reach the backend." };
   }
 }
@@ -106,9 +118,10 @@ export async function listWorkItems(token: string, filters: WorkItemListFilters 
   try {
     const response = await backendFetch<{ data: WorkItemListResult }>(`/api/google/work-items${buildQuery(filters)}`, { token });
     if (response.status === 401) return { kind: "unauthenticated" };
-    if (!response.ok || !response.data?.data) return { kind: "error", message: "Failed to load work items." };
+    if (!response.ok || !response.data?.data) return logFailure("list", response, "Failed to load work items.");
     return { kind: "ok", data: response.data.data };
-  } catch {
+  } catch (err) {
+    console.error("[work-items] backend unreachable:", err instanceof Error ? err.message : err);
     return { kind: "error", message: "Unable to reach the backend." };
   }
 }
@@ -118,9 +131,10 @@ export async function getWorkItem(token: string, id: string): Promise<WorkItemRe
     const response = await backendFetch<{ data: WorkItem }>(`/api/google/work-items/${encodeURIComponent(id)}`, { token });
     if (response.status === 401) return { kind: "unauthenticated" };
     if (response.status === 404) return { kind: "not_found" };
-    if (!response.ok || !response.data?.data) return { kind: "error", message: "Failed to load work item." };
+    if (!response.ok || !response.data?.data) return logFailure("detail", response, "Failed to load work item.");
     return { kind: "ok", data: response.data.data };
-  } catch {
+  } catch (err) {
+    console.error("[work-items] backend unreachable:", err instanceof Error ? err.message : err);
     return { kind: "error", message: "Unable to reach the backend." };
   }
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/ui/States";
 import { Pagination, listHref } from "@/components/ui/Pagination";
-import { WorkTypeBadge, WorkflowBadge, SlaBadge, ClassificationLabel } from "./WorkItemBadges";
+import { WorkflowBadge, SlaBadge, ClassificationLabel } from "./WorkItemBadges";
 import { WorkItemActions } from "./WorkItemActions";
 import { formatDateTime, formatFraction } from "@/lib/format";
 import type { WorkItem, WorkItemWorkType, WorkItemWorkflowStatus, WorkItemSlaState } from "@/lib/api/google";
@@ -40,81 +40,70 @@ export function WorkItemTable({
     );
   }
 
+  const th = "px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45";
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border-subtle bg-surface">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-border-subtle bg-surface-muted/40">
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Classification</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">SLA</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Customer</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Mailbox</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Classified</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Actions</th>
+      {/* lg+: compact 5-column table. The type column is dropped — the active tab already says which list this is. */}
+      <table className="hidden w-full table-fixed text-sm lg:table">
+        <colgroup>
+          <col />
+          <col className="w-40" />
+          <col className="w-44" />
+          <col className="w-32" />
+          <col className="w-32" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-border-subtle bg-surface-muted/40">
+            <th className={`${th} pl-5`}>Customer</th>
+            <th className={th}>Classification</th>
+            <th className={th}>Status &amp; SLA</th>
+            <th className={th}>Classified</th>
+            <th className={`${th} pr-5 text-right`}>Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border-subtle">
+          {items.map((item) => (
+            <tr key={item.id} className="align-top transition-colors hover:bg-surface-muted/30">
+              <td className="py-3.5 pl-5 pr-4">
+                <CustomerCell item={item} query={query} />
+              </td>
+              <td className="px-4 py-3.5">
+                <ClassificationCell item={item} />
+              </td>
+              <td className="px-4 py-3.5">
+                <StatusCell item={item} />
+              </td>
+              <td className="px-4 py-3.5 text-xs text-foreground/55">{formatDateTime(item.classifiedAt)}</td>
+              <td className="py-3.5 pl-4 pr-5">
+                <div className="flex justify-end">
+                  <WorkItemActions item={item} compact />
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-border-subtle">
-            {items.map((item) => (
-              <tr key={item.id} className="hover:bg-surface-muted/30 transition-colors">
-                <td className="px-5 py-3.5">
-                  <WorkTypeBadge type={item.workType} />
-                </td>
-                <td className="px-4 py-3.5">
-                  <div className="flex flex-col gap-1">
-                    <ClassificationLabel label={item.classificationLabel} />
-                    <span className="text-xs text-foreground/40">
-                      {formatFraction(item.confidence)} conf.
-                    </span>
-                  </div>
-                </td>
-                <td className="px-4 py-3.5">
-                  <WorkflowBadge status={item.workflowStatus} />
-                </td>
-                <td className="px-4 py-3.5">
-                  <div className="flex flex-col gap-1">
-                    <SlaBadge state={item.slaState} />
-                    {item.resolutionDeadline && item.workflowStatus !== "RESOLVED" && item.workflowStatus !== "CLOSED" && (
-                      <span className="text-xs text-foreground/40">
-                        Due {formatDateTime(item.resolutionDeadline)}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-3.5 max-w-[200px]">
-                  <CustomerCell item={item} />
-                </td>
-                <td className="px-4 py-3.5 max-w-[160px]">
-                  <Link
-                    href={listHref(BASE_PATH, { ...query, mailbox_address: item.mailboxAddress })}
-                    className="block truncate text-xs text-foreground/70 hover:text-teal-dark hover:underline"
-                    title={`Show only ${item.mailboxAddress}`}
-                  >
-                    {item.mailboxAddress}
-                  </Link>
-                </td>
-                <td className="px-4 py-3.5 whitespace-nowrap">
-                  <span className="text-xs text-foreground/55">{formatDateTime(item.classifiedAt)}</span>
-                </td>
-                <td className="px-4 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={`/escalations/${item.id}`}
-                      className="inline-flex items-center gap-1 rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium text-foreground/70 hover:bg-surface-muted transition"
-                    >
-                      <Icon name="eye" className="h-3.5 w-3.5" />
-                      View
-                    </Link>
-                    <WorkItemActions item={item} />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Below lg: one card per item, so nothing scrolls sideways on a phone. */}
+      <ul className="divide-y divide-border-subtle lg:hidden">
+        {items.map((item) => (
+          <li key={item.id} className="flex flex-col gap-3 px-4 py-4 sm:px-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <CustomerCell item={item} query={query} />
+              </div>
+              <span className="shrink-0 text-xs text-foreground/45">{formatDateTime(item.classifiedAt)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <ClassificationCell item={item} />
+              <StatusCell item={item} />
+            </div>
+            <WorkItemActions item={item} />
+          </li>
+        ))}
+      </ul>
+
       {total > pageSize && (
         <Pagination
           basePath={BASE_PATH}
@@ -128,28 +117,64 @@ export function WorkItemTable({
   );
 }
 
-/** Customer per spec 6.3; falls back to the sender when no unique customer matched. */
-function CustomerCell({ item }: { item: WorkItem }) {
-  if (item.customerDisplayName) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span className="block truncate text-xs font-medium text-foreground/80" title={item.customerDisplayName}>
-          {item.customerDisplayName}
-        </span>
-        {item.senderFrom && (
-          <span className="block truncate text-xs text-foreground/40" title={item.senderFrom}>
+const isTerminal = (item: WorkItem) =>
+  item.workflowStatus === "RESOLVED" || item.workflowStatus === "CLOSED" || item.workflowStatus === "NOT_A_PROBLEM";
+
+/**
+ * Customer per spec 6.3 (falls back to the sender when no unique customer matched), linked to the detail page,
+ * plus the mailbox as a one-click filter.
+ */
+function CustomerCell({ item, query }: { item: WorkItem; query: Query }) {
+  const name = item.customerDisplayName ?? item.senderFrom ?? "Unknown sender";
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <Link
+        href={`/escalations/${item.id}`}
+        className="truncate text-sm font-medium text-foreground hover:text-teal-dark hover:underline"
+        title={name}
+      >
+        {name}
+      </Link>
+      {item.customerDisplayName ? (
+        item.senderFrom && (
+          <span className="truncate text-xs text-foreground/45" title={item.senderFrom}>
             {item.senderFrom}
           </span>
-        )}
-      </div>
-    );
-  }
+        )
+      ) : (
+        <span className="text-xs text-foreground/40">No customer match</span>
+      )}
+      <Link
+        href={listHref(BASE_PATH, { ...query, mailbox_address: item.mailboxAddress })}
+        className="truncate text-xs text-foreground/45 hover:text-teal-dark hover:underline"
+        title={`Show only ${item.mailboxAddress}`}
+      >
+        <Icon name="mail" className="mr-1 inline h-3 w-3 align-[-2px]" />
+        {item.mailboxAddress}
+      </Link>
+    </div>
+  );
+}
+
+function ClassificationCell({ item }: { item: WorkItem }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="block truncate text-xs text-foreground/70" title={item.senderFrom ?? undefined}>
-        {item.senderFrom ?? "—"}
-      </span>
-      <span className="text-xs text-foreground/40">No customer match</span>
+    <div className="flex flex-col items-start gap-1">
+      <ClassificationLabel label={item.classificationLabel} />
+      <span className="text-xs text-foreground/40">{formatFraction(item.confidence)} confidence</span>
+    </div>
+  );
+}
+
+function StatusCell({ item }: { item: WorkItem }) {
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex flex-wrap gap-1">
+        <WorkflowBadge status={item.workflowStatus} />
+        {item.slaState !== "UNCONFIGURED" && <SlaBadge state={item.slaState} />}
+      </div>
+      {item.resolutionDeadline && !isTerminal(item) && (
+        <span className="text-xs text-foreground/40">Due {formatDateTime(item.resolutionDeadline)}</span>
+      )}
     </div>
   );
 }
