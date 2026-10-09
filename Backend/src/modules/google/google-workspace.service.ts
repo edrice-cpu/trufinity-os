@@ -2,7 +2,7 @@ import type { Knex } from 'knex';
 import { db } from '../../database';
 
 export type WorkItemSlaState = 'UNCONFIGURED' | 'ON_TRACK' | 'BREACHED' | 'MET';
-export type WorkItemWorkflowStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'CLOSED';
+export type WorkItemWorkflowStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'CLOSED' | 'NOT_A_PROBLEM';
 export type WorkItemWorkType = 'ESCALATION' | 'REVIEW_REQUIRED';
 
 export interface WorkItemRow {
@@ -23,6 +23,13 @@ export interface WorkItemRow {
   acknowledgedAt: Date | null;
   resolvedAt: Date | null;
   resolutionNote: string | null;
+  dismissedAt: Date | null;
+  dismissedByUserId: string | null;
+  dismissalReason: string | null;
+  // Customer correlation — null when no unique QBO customer matched the sender email.
+  // ServiceTitan customer ID is not available (no cross-system identity mapping exists).
+  unifiedCustomerId: string | null;
+  customerDisplayName: string | null;
   createdAt: Date;
   updatedAt: Date;
   // from classification JOIN
@@ -70,7 +77,7 @@ const buildSourceUrl = (providerMessageId: string): string =>
   `https://mail.google.com/mail/u/0/#all/${providerMessageId}`;
 
 const effectiveSlaState = (row: { sla_state: string; resolution_deadline: Date | null; workflow_status: string }): WorkItemSlaState => {
-  const terminal = row.workflow_status === 'RESOLVED' || row.workflow_status === 'CLOSED';
+  const terminal = row.workflow_status === 'RESOLVED' || row.workflow_status === 'CLOSED' || row.workflow_status === 'NOT_A_PROBLEM';
   if (!terminal && row.resolution_deadline && row.resolution_deadline < new Date()) return 'BREACHED';
   const s = row.sla_state as WorkItemSlaState;
   // AT_RISK was removed in migration 015 but guard against stale data
@@ -106,6 +113,11 @@ const mapRow = (r: Record<string, unknown>): WorkItemRow => ({
   acknowledgedAt: r.acknowledged_at as Date | null,
   resolvedAt: r.resolved_at as Date | null,
   resolutionNote: (r.resolution_note as string | null) ?? null,
+  dismissedAt: (r.dismissed_at as Date | null) ?? null,
+  dismissedByUserId: (r.dismissed_by_user_id as string | null) ?? null,
+  dismissalReason: (r.dismissal_reason as string | null) ?? null,
+  unifiedCustomerId: (r.unified_customer_id as string | null) ?? null,
+  customerDisplayName: (r.customer_display_name as string | null) ?? null,
   createdAt: r.created_at as Date,
   updatedAt: r.updated_at as Date,
   classificationId: r.classification_id as string,
@@ -141,6 +153,11 @@ const baseQuery = (database: Knex) =>
       'w.acknowledged_at',
       'w.resolved_at',
       'w.resolution_note',
+      'w.dismissed_at',
+      'w.dismissed_by_user_id',
+      'w.dismissal_reason',
+      'w.unified_customer_id',
+      'w.customer_display_name',
       'w.created_at',
       'w.updated_at',
       'c.id as classification_id',
@@ -166,14 +183,14 @@ const baseQuery = (database: Knex) =>
 const applySlaFilter = (q: Knex.QueryBuilder, slaState: WorkItemSlaState, now: Date): void => {
   switch (slaState) {
     case 'BREACHED':
-      q.whereNotIn('w.workflow_status', ['RESOLVED', 'CLOSED'])
+      q.whereNotIn('w.workflow_status', ['RESOLVED', 'CLOSED', 'NOT_A_PROBLEM'])
         .whereNotNull('w.resolution_deadline')
         .where('w.resolution_deadline', '<', now);
       break;
     case 'ON_TRACK':
       // Persisted ON_TRACK but not effectively BREACHED yet.
       q.where('w.sla_state', 'ON_TRACK').where((q2) => {
-        q2.whereIn('w.workflow_status', ['RESOLVED', 'CLOSED'])
+        q2.whereIn('w.workflow_status', ['RESOLVED', 'CLOSED', 'NOT_A_PROBLEM'])
           .orWhereNull('w.resolution_deadline')
           .orWhere('w.resolution_deadline', '>=', now);
       });
@@ -256,7 +273,7 @@ export class GoogleWorkspaceService {
     let breached = 0;
 
     for (const r of rows) {
-      const isTerminal = r.workflow_status === 'RESOLVED' || r.workflow_status === 'CLOSED';
+      const isTerminal = r.workflow_status === 'RESOLVED' || r.workflow_status === 'CLOSED' || r.workflow_status === 'NOT_A_PROBLEM';
       const effectiveBreach = !isTerminal && r.resolution_deadline != null && r.resolution_deadline < now;
 
       if (r.workflow_status === 'OPEN' || r.workflow_status === 'ACKNOWLEDGED') {
@@ -277,7 +294,7 @@ export class GoogleWorkspaceService {
     const row = await this.database('email_escalation_work_items').where({ id }).first() as unknown as { workflow_status: string } | undefined;
     if (!row) return null;
 
-    // Idempotent: already acknowledged or further along — still return the item
+    // Idempotent: already acknowledged or terminal — still return the item
     if (row.workflow_status !== 'OPEN') {
       return this.getWorkItemById(id);
     }
@@ -298,7 +315,7 @@ export class GoogleWorkspaceService {
     } | undefined;
     if (!row) return null;
 
-    if (row.workflow_status === 'RESOLVED' || row.workflow_status === 'CLOSED') {
+    if (row.workflow_status === 'RESOLVED' || row.workflow_status === 'CLOSED' || row.workflow_status === 'NOT_A_PROBLEM') {
       return this.getWorkItemById(id);
     }
 
@@ -317,6 +334,42 @@ export class GoogleWorkspaceService {
     await this.database('email_escalation_work_items')
       .where({ id })
       .update({ workflow_status: 'RESOLVED', resolved_at: now, resolution_note: resolutionNote, sla_state: terminalSlaState, updated_at: now });
+
+    return this.getWorkItemById(id);
+  }
+
+  public async dismissWorkItem(id: string, actorUserId: string, reason: string | null): Promise<WorkItemRow | null> {
+    if (!UUID_PATTERN.test(id)) return null;
+    const row = await this.database('email_escalation_work_items').where({ id }).first() as unknown as {
+      workflow_status: string;
+    } | undefined;
+    if (!row) return null;
+
+    // Already dismissed — idempotent
+    if (row.workflow_status === 'NOT_A_PROBLEM') {
+      return this.getWorkItemById(id);
+    }
+
+    // RESOLVED and CLOSED are terminal; do not silently rewrite them
+    if (row.workflow_status === 'RESOLVED' || row.workflow_status === 'CLOSED') {
+      return null;
+    }
+
+    const now = new Date();
+    // sla_state is intentionally NOT changed. The historical SLA state (ON_TRACK,
+    // BREACHED, UNCONFIGURED) is preserved as a factual record of the item's state
+    // at dismissal time. Future breach progression is stopped because effectiveSlaState
+    // treats NOT_A_PROBLEM as terminal, and applySlaFilter excludes NOT_A_PROBLEM from
+    // the dynamic BREACHED filter. The persisted resolution_deadline is also retained.
+    await this.database('email_escalation_work_items')
+      .where({ id })
+      .update({
+        workflow_status: 'NOT_A_PROBLEM',
+        dismissed_at: now,
+        dismissed_by_user_id: actorUserId,
+        dismissal_reason: reason ?? null,
+        updated_at: now,
+      });
 
     return this.getWorkItemById(id);
   }

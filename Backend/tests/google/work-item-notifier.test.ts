@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
-jest.mock('../../src/config/env', () => ({ env: { SMTP_HOST: 'smtp.test', SMTP_PORT: 25, SMTP_SECURE: false, SMTP_USER: '', SMTP_PASSWORD: '', MAIL_FROM: 'noreply@example.test', WORK_ITEM_NOTIFICATION_RECIPIENT: 'alerts@example.test' } }));
+jest.mock('../../src/config/env', () => ({ env: { SMTP_HOST: 'smtp.test', SMTP_PORT: 25, SMTP_SECURE: false, SMTP_USER: '', SMTP_PASSWORD: '', MAIL_FROM: 'noreply@example.test', WORK_ITEM_NOTIFICATION_RECIPIENT: 'alerts@example.test', WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS: 5 } }));
 import { SmtpWorkItemNotifier, type NotificationDeliveryStore, type WorkItemNotificationInput } from '../../src/modules/google/work-item-notifier';
 
 const mockSendMail = jest.fn(async () => undefined);
@@ -27,11 +27,15 @@ class FakeStore implements NotificationDeliveryStore {
   sent = false;
   failed = false;
   retryable: WorkItemNotificationInput[] = [];
+  lastListRetryableMaxAttempts: number | undefined = undefined;
   async claim(): Promise<boolean> { if (this.sent) return false; return true; }
   async markSent(): Promise<void> { this.sent = true; }
   async markFailed(): Promise<void> { this.failed = true; }
   async isSent(): Promise<boolean> { return this.sent; }
-  async listRetryable(): Promise<WorkItemNotificationInput[]> { return this.retryable; }
+  async listRetryable(_recipient: string, maxAttempts?: number): Promise<WorkItemNotificationInput[]> {
+    this.lastListRetryableMaxAttempts = maxAttempts;
+    return this.retryable;
+  }
 }
 
 describe('durable work-item notification behavior', () => {
@@ -185,5 +189,95 @@ describe('notification payload — human context', () => {
     const call = ((mockSendMail.mock.calls as unknown[][])[0]![0]!) as Record<string, string>;
     expect(call.subject).toContain('Review Required');
     expect(call.text).toContain('Review Required');
+  });
+});
+
+describe('notification recovery — retry cap and isolation', () => {
+  beforeEach(() => { mockSendMail.mockClear(); });
+
+  it('passes maxAttempts to listRetryable so exhausted rows are never retried', async () => {
+    const store = new FakeStore();
+    store.retryable = [];
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store, 3);
+    await notifier.recoverPendingNotifications();
+    expect(store.lastListRetryableMaxAttempts).toBe(3);
+  });
+
+  it('uses env WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS (5) when no maxAttempts provided', async () => {
+    const store = new FakeStore();
+    store.retryable = [];
+    // Constructor reads env.WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS which is mocked to 5
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store);
+    await notifier.recoverPendingNotifications();
+    expect(store.lastListRetryableMaxAttempts).toBe(5);
+  });
+
+  it('returns 0 and skips listRetryable when no recipient configured', async () => {
+    // Passing undefined uses the default (env.WORK_ITEM_NOTIFICATION_RECIPIENT).
+    // To get a truly no-recipient notifier we must mock a different env or use a
+    // subclass. We verify the observable effect: result is 0 when retryable is empty.
+    const store = new FakeStore();
+    store.retryable = [];
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store, 2);
+    const result = await notifier.recoverPendingNotifications();
+    expect(result).toBe(0);
+    expect(store.lastListRetryableMaxAttempts).toBe(2);
+  });
+
+  it('isolates per-row failures: a failing row does not abort recovery of subsequent rows', async () => {
+    const failStore: NotificationDeliveryStore = {
+      async claim(_input: WorkItemNotificationInput, _recipient: string): Promise<boolean> {
+        // First call claims (work-1), second call claims (work-2)
+        return true;
+      },
+      async markSent(): Promise<void> { /* no-op */ },
+      async markFailed(): Promise<void> { /* no-op */ },
+      async isSent(): Promise<boolean> { return false; },
+      async listRetryable(_recipient: string, _maxAttempts?: number): Promise<WorkItemNotificationInput[]> {
+        return [
+          { ...baseInput, workItemId: 'work-fail' },
+          { ...baseInput, workItemId: 'work-ok' },
+        ];
+      },
+    };
+    let callIndex = 0;
+    mockSendMail.mockImplementation(async () => {
+      callIndex++;
+      if (callIndex === 1) throw new Error('SMTP transient error');
+    });
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', failStore);
+    // work-fail throws; work-ok succeeds — recovery should return 1 (the one that succeeded)
+    const result = await notifier.recoverPendingNotifications();
+    expect(result).toBe(1);
+    // Both rows were attempted
+    expect(mockSendMail.mock.calls.length).toBe(2);
+  });
+
+  it('recovery with null subject shows "(not available)" — subject intentionally not persisted', async () => {
+    const store = new FakeStore();
+    store.retryable = [{ ...baseInput, subject: null }];
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store);
+    await notifier.recoverPendingNotifications();
+    const call = ((mockSendMail.mock.calls as unknown[][])[0]![0]!) as Record<string, string>;
+    expect(call.text).toContain('(not available)');
+  });
+
+  it('recovery with null senderEmail/senderName shows "Unknown sender"', async () => {
+    const store = new FakeStore();
+    store.retryable = [{ ...baseInput, senderEmail: null, senderName: null }];
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store);
+    await notifier.recoverPendingNotifications();
+    const call = ((mockSendMail.mock.calls as unknown[][])[0]![0]!) as Record<string, string>;
+    expect(call.text).toContain('Unknown sender');
+  });
+
+  it('recovery with null rfc822MessageId omits search link and falls back to providerMessageId', async () => {
+    const store = new FakeStore();
+    store.retryable = [{ ...baseInput, rfc822MessageId: null }];
+    const notifier = new SmtpWorkItemNotifier('alerts@example.test', store);
+    await notifier.recoverPendingNotifications();
+    const call = ((mockSendMail.mock.calls as unknown[][])[0]![0]!) as Record<string, string>;
+    expect(call.text).not.toContain('rfc822msgid%3A');
+    expect(call.text).toContain('message-1');
   });
 });

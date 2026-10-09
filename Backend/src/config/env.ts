@@ -48,7 +48,6 @@ const envSchema = z.object({
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().default(''),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().default('').transform((value) => value.replace(/\\n/g, '\n')),
   GOOGLE_ADMIN_DELEGATED_USER: z.string().default(''),
-  GOOGLE_GMAIL_DELEGATED_USER: z.string().default(''),
   GOOGLE_GMAIL_HISTORICAL_DAYS: z.coerce.number().int().min(1).max(3650).default(365),
   GOOGLE_GMAIL_SYNC_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
   GOOGLE_GMAIL_APPROVED_CONTENT_MAILBOXES: z.string()
@@ -68,6 +67,9 @@ const envSchema = z.object({
   GMAIL_CLASSIFIER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(2),
   GMAIL_CLASSIFIER_PROMPT_VERSION: z.string().default('v1'),
   WORK_ITEM_NOTIFICATION_RECIPIENT: z.preprocess((v) => v === '' ? undefined : v, z.string().email().optional()),
+  // Maximum SMTP delivery attempts per work-item notification before giving up.
+  // Rows at or above this count are excluded from recoverPendingNotifications().
+  WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(5),
   // ServiceTitan
   SERVICETITAN_CLIENT_ID: z.string().default(''),
   SERVICETITAN_CLIENT_SECRET: z.string().default(''),
@@ -167,6 +169,18 @@ const envSchema = z.object({
   // (address) as another job completed within this many days before it - on
   // the same equipment when both jobs carry equipment ids.
   DETECT_O07_REPEAT_WINDOW_DAYS: z.coerce.number().default(30),
+
+  // R-01: Unanswered Inbound Email Detection (Google Workspace responsiveness rule)
+  // ⚠ PRODUCT CONFIRMATION REQUIRED: GOOGLE_R01_THRESHOLD_MINUTES default (240 = 4 business hours)
+  // was chosen as a conservative placeholder. The product team must confirm the exact threshold
+  // before this rule is considered calibrated for production.
+  GOOGLE_R01_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  GOOGLE_R01_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(240),
+  GOOGLE_R01_TIMEZONE: z.string().default('America/Toronto'),
+  GOOGLE_R01_BUSINESS_START_HOUR: z.coerce.number().int().min(0).max(23).default(9),
+  GOOGLE_R01_BUSINESS_END_HOUR: z.coerce.number().int().min(1).max(24).default(17),
+  GOOGLE_R01_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  GOOGLE_R01_EVAL_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
 
   // Narrate layer: LLM writes prose describing detected_alerts findings only -
   // it never recomputes numbers (SPEC-BI-001 Section 4.1).

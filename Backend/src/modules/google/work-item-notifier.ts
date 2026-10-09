@@ -14,7 +14,11 @@ export interface WorkItemNotificationInput {
   sourceReference: string | null;
   classifiedAt: Date;
   resolutionDeadline: Date;
-  // Transient context — in-memory during Layer B processing only, never persisted.
+  // Transient context — available during initial Layer B processing only.
+  // In the recovery path these fields may be null: subject and rfc822MessageId
+  // are intentionally not persisted (not in ALLOWED_HEADERS / not stored);
+  // senderEmail/senderName/internalDate are reconstructed from the persisted
+  // metadata payload where available.
   senderEmail: string | null;
   senderName: string | null;
   subject: string | null;
@@ -34,15 +38,47 @@ export interface NotificationDeliveryStore {
   markSent(workItemId: string, recipient: string): Promise<void>;
   markFailed(workItemId: string, recipient: string, category: string): Promise<void>;
   isSent(workItemId: string, recipient: string): Promise<boolean>;
-  listRetryable(recipient: string): Promise<WorkItemNotificationInput[]>;
+  /**
+   * Returns rows in PENDING, FAILED, or stale-SENDING status that are eligible
+   * for retry. When `maxAttempts` is provided, rows with `attempt_count >=
+   * maxAttempts` are excluded at the query level so they are never retried.
+   */
+  listRetryable(recipient: string, maxAttempts?: number): Promise<WorkItemNotificationInput[]>;
 }
 
 const LEASE_MS = 10 * 60 * 1000;
 const deliveryKey = (workItemId: string, recipient: string): string => `${workItemId}:WORK_ITEM:SMTP:${recipient}`;
 interface NotificationRow { id: string; status: string; last_attempted_at: string | Date | null; attempt_count: number; }
 
+/**
+ * Extracts senderEmail and senderName from a persisted Gmail metadata payload.
+ * Only the `from` header is used; this header is in ALLOWED_HEADERS and is
+ * therefore privacy-safe to read back from the database.
+ * Subject and rfc822MessageId are NOT available in the recovery path because
+ * they are intentionally not persisted (not in ALLOWED_HEADERS).
+ */
+const extractSenderFromPayload = (rawPayload: unknown): { senderEmail: string | null; senderName: string | null } => {
+  if (typeof rawPayload !== 'object' || rawPayload === null) return { senderEmail: null, senderName: null };
+  const payload = rawPayload as Record<string, unknown>;
+  if (!Array.isArray(payload.headers)) return { senderEmail: null, senderName: null };
+  for (const h of payload.headers as unknown[]) {
+    if (typeof h !== 'object' || h === null) continue;
+    const entry = h as Record<string, unknown>;
+    if (typeof entry.name === 'string' && entry.name.toLowerCase() === 'from' && typeof entry.value === 'string') {
+      const from = entry.value;
+      const addrMatch = /<([^>]+)>/.exec(from);
+      const email = addrMatch ? addrMatch[1].trim().toLowerCase() : from.trim().toLowerCase() || null;
+      const nameMatch = /^([^<]+)</.exec(from);
+      const name = nameMatch ? nameMatch[1].trim() || null : null;
+      return { senderEmail: email || null, senderName: name };
+    }
+  }
+  return { senderEmail: null, senderName: null };
+};
+
 export class KnexNotificationDeliveryStore implements NotificationDeliveryStore {
   public constructor(private readonly database: Knex = db) {}
+
   public async claim(input: WorkItemNotificationInput, recipient: string): Promise<boolean> {
     const key = deliveryKey(input.workItemId, recipient);
     return this.database.transaction(async (trx) => {
@@ -55,12 +91,85 @@ export class KnexNotificationDeliveryStore implements NotificationDeliveryStore 
       return true;
     });
   }
-  public async markSent(workItemId: string, recipient: string): Promise<void> { await this.database('email_notification_deliveries').where({ idempotency_key: deliveryKey(workItemId, recipient) }).update({ status: 'SENT', sent_at: new Date(), updated_at: new Date(), last_error_category: null }); }
-  public async markFailed(workItemId: string, recipient: string, category: string): Promise<void> { await this.database('email_notification_deliveries').where({ idempotency_key: deliveryKey(workItemId, recipient) }).update({ status: 'FAILED', last_error_category: category, updated_at: new Date() }); }
-  public async isSent(workItemId: string, recipient: string): Promise<boolean> { const row = await this.database('email_notification_deliveries').select('status').where({ idempotency_key: deliveryKey(workItemId, recipient) }).first() as unknown as Pick<NotificationRow, 'status'> | undefined; return row?.status === 'SENT'; }
-  public async listRetryable(recipient: string): Promise<WorkItemNotificationInput[]> {
-    const rows: unknown = await this.database('email_notification_deliveries as d').join('email_escalation_work_items as w', 'w.id', 'd.work_item_id').join('email_classification_results as c', 'c.id', 'w.classification_result_id').select('w.id as workItemId', 'c.id as classificationId', 'w.work_type as workType', 'c.classification_label as classificationLabel', 'c.confidence', 'c.mailbox_address as mailboxAddress', 'c.provider_message_id as providerMessageId', 'c.source_reference as sourceReference', 'c.classified_at as classifiedAt', 'w.resolution_deadline as resolutionDeadline', 'c.reason as classifierReason').where('d.recipient', recipient).whereIn('d.status', ['PENDING', 'FAILED', 'SENDING']);
-    return Array.isArray(rows) ? rows as WorkItemNotificationInput[] : [];
+
+  public async markSent(workItemId: string, recipient: string): Promise<void> {
+    await this.database('email_notification_deliveries').where({ idempotency_key: deliveryKey(workItemId, recipient) }).update({ status: 'SENT', sent_at: new Date(), updated_at: new Date(), last_error_category: null });
+  }
+
+  public async markFailed(workItemId: string, recipient: string, category: string): Promise<void> {
+    await this.database('email_notification_deliveries').where({ idempotency_key: deliveryKey(workItemId, recipient) }).update({ status: 'FAILED', last_error_category: category, updated_at: new Date() });
+  }
+
+  public async isSent(workItemId: string, recipient: string): Promise<boolean> {
+    const row = await this.database('email_notification_deliveries').select('status').where({ idempotency_key: deliveryKey(workItemId, recipient) }).first() as unknown as Pick<NotificationRow, 'status'> | undefined;
+    return row?.status === 'SENT';
+  }
+
+  public async listRetryable(recipient: string, maxAttempts?: number): Promise<WorkItemNotificationInput[]> {
+    let query = this.database('email_notification_deliveries as d')
+      .join('email_escalation_work_items as w', 'w.id', 'd.work_item_id')
+      .join('email_classification_results as c', 'c.id', 'w.classification_result_id')
+      // LEFT JOIN to recover privacy-safe metadata: internal_date and the From
+      // header are in ALLOWED_HEADERS and may be reconstructed for richer recovery
+      // notifications. Subject and Message-ID are NOT in ALLOWED_HEADERS and must
+      // not be queried or persisted.
+      .leftJoin('raw_gmail_messages as g', (join) =>
+        join
+          .on('g.provider_message_id', '=', 'c.provider_message_id')
+          .on('g.mailbox_address', '=', 'c.mailbox_address')
+          .onVal('g.is_latest', '=', true),
+      )
+      .select(
+        'w.id as workItemId',
+        'c.id as classificationId',
+        'w.work_type as workType',
+        'c.classification_label as classificationLabel',
+        'c.confidence',
+        'c.mailbox_address as mailboxAddress',
+        'c.provider_message_id as providerMessageId',
+        'c.source_reference as sourceReference',
+        'c.classified_at as classifiedAt',
+        'w.resolution_deadline as resolutionDeadline',
+        'c.reason as classifierReason',
+        'g.internal_date as rawInternalDate',
+        'g.payload as rawPayload',
+      )
+      .where('d.recipient', recipient)
+      .whereIn('d.status', ['PENDING', 'FAILED', 'SENDING']);
+
+    if (maxAttempts !== undefined) {
+      query = query.where('d.attempt_count', '<', maxAttempts);
+    }
+
+    const rows: unknown = await query;
+    if (!Array.isArray(rows)) return [];
+
+    return rows.map((row: unknown): WorkItemNotificationInput => {
+      const r = row as Record<string, unknown>;
+      const { senderEmail, senderName } = extractSenderFromPayload(r.rawPayload);
+      return {
+        workItemId: r.workItemId as string,
+        classificationId: r.classificationId as string,
+        workType: r.workType as 'ESCALATION' | 'REVIEW_REQUIRED',
+        classificationLabel: r.classificationLabel as string,
+        confidence: Number(r.confidence),
+        mailboxAddress: r.mailboxAddress as string,
+        providerMessageId: r.providerMessageId as string,
+        sourceReference: (r.sourceReference as string | null) ?? null,
+        classifiedAt: r.classifiedAt as Date,
+        resolutionDeadline: r.resolutionDeadline as Date,
+        classifierReason: (r.classifierReason as string | null) ?? null,
+        internalDate: (r.rawInternalDate as Date | null) ?? null,
+        senderEmail,
+        senderName,
+        // Subject and rfc822MessageId are intentionally not persisted (not in
+        // ALLOWED_HEADERS). Recovery notifications show "(not available)" for
+        // subject and omit the RFC 822 search link. This is the correct and
+        // privacy-safe behavior — not a bug.
+        subject: null,
+        rfc822MessageId: null,
+      };
+    });
   }
 }
 
@@ -70,6 +179,7 @@ export class SmtpWorkItemNotifier implements WorkItemNotifier {
   public constructor(
     private readonly recipient: string | undefined = env.WORK_ITEM_NOTIFICATION_RECIPIENT,
     private readonly store: NotificationDeliveryStore = new KnexNotificationDeliveryStore(),
+    private readonly maxAttempts: number = env.WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS,
   ) {}
 
   public async hasNotificationBeenSent(workItemId: string): Promise<boolean> {
@@ -77,11 +187,25 @@ export class SmtpWorkItemNotifier implements WorkItemNotifier {
     return this.store.isSent(workItemId, this.recipient);
   }
 
+  /**
+   * Retries all PENDING, FAILED, and stale-SENDING deliveries for the
+   * configured recipient, up to `maxAttempts` per row. One failed delivery
+   * does not prevent recovery of subsequent rows. Returns the count of
+   * notifications newly sent during this call.
+   */
   public async recoverPendingNotifications(): Promise<number> {
     if (!this.recipient) return 0;
-    const pending = await this.store.listRetryable(this.recipient);
+    const pending = await this.store.listRetryable(this.recipient, this.maxAttempts);
     let sent = 0;
-    for (const input of pending) if (await this.sendNotification(input)) sent += 1;
+    for (const input of pending) {
+      try {
+        if (await this.sendNotification(input)) sent += 1;
+      } catch {
+        // Isolation: sendNotification() already persisted FAILED status before
+        // throwing. Swallow the error here so one failed row does not abort
+        // recovery of the remaining rows.
+      }
+    }
     return sent;
   }
 
