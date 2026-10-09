@@ -38,46 +38,45 @@ async function bookingRateByCsrForWindow(database: Knex, start: Date, end: Date)
   return new Map(rows.map((r) => [r.csr, { total: Number(r.total), booked: Number(r.booked) }]));
 }
 
-function rate(counts: BookingCounts): number | null {
-  return counts.total > 0 ? counts.booked / counts.total : null;
+function rate(counts: BookingCounts | undefined): number | null {
+  return counts && counts.total > 0 ? counts.booked / counts.total : null;
 }
 
+// The trigger is the current rolling-7-day rate against the floor alone; the
+// trailing 4-week rate is carried along only as context for the narrative.
 function buildFinding(
   dimension: string,
   window: DetectionWindow,
   current: BookingCounts,
-  baseline: BookingCounts,
+  baseline: BookingCounts | undefined,
 ): DetectedAlertFinding | null {
   const currentRate = rate(current);
+  if (currentRate === null) return null;
+  if (currentRate * 100 >= env.DETECT_D01_BOOKING_RATE_FLOOR_PERCENT) return null;
+
   const baselineRate = rate(baseline);
-  if (currentRate === null || baselineRate === null) return null;
-
-  const dropPoints = (baselineRate - currentRate) * 100;
-  if (dropPoints < env.DETECT_D01_BOOKING_RATE_DROP_THRESHOLD_POINTS) return null;
-
   return {
     ruleCode: 'D-01',
     dimension,
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    baselineStart: window.baselineStart,
-    baselineEnd: window.baselineEnd,
+    baselineStart: baselineRate === null ? null : window.baselineStart,
+    baselineEnd: baselineRate === null ? null : window.baselineEnd,
     metricValue: currentRate,
     baselineValue: baselineRate,
     details: {
       currentBookedCalls: current.booked,
       currentTotalCalls: current.total,
-      baselineBookedCalls: baseline.booked,
-      baselineTotalCalls: baseline.total,
-      dropPoints,
-      thresholdPoints: env.DETECT_D01_BOOKING_RATE_DROP_THRESHOLD_POINTS,
+      ...(baselineRate === null ? {} : { baselineBookedCalls: baseline?.booked, baselineTotalCalls: baseline?.total }),
+      floorPercent: env.DETECT_D01_BOOKING_RATE_FLOOR_PERCENT,
     },
   };
 }
 
-// D-01: flags a booking rate decline vs. the trailing 4-week average, both
-// tenant-wide and per CSR (SPEC-BI-001 Section 5.3: "overall or by CSR").
-// Exact threshold TBD from the spec - see DETECT_D01_BOOKING_RATE_DROP_THRESHOLD_POINTS.
+// D-01 (RED): booking rate as reported by Lace AI falls below the threshold
+// on a rolling 7-day basis, overall or by CSR (SPEC-BI-001 Section 5.3).
+// Consumed, not recomputed: the rate is a count of Lace's own per-call
+// `booked` classification - this rule never reclassifies a call.
 export async function evaluateBookingRateDecline(window: DetectionWindow, database: Knex = db): Promise<DetectedAlertFinding[]> {
   const [current, baseline, currentByCsr, baselineByCsr] = await Promise.all([
     bookingRateForWindow(database, window.periodStart, window.periodEnd),
@@ -93,10 +92,7 @@ export async function evaluateBookingRateDecline(window: DetectionWindow, databa
 
   for (const [csr, csrCurrent] of currentByCsr) {
     if (csrCurrent.total < MIN_CSR_CALLS) continue;
-    const csrBaseline = baselineByCsr.get(csr);
-    if (!csrBaseline || csrBaseline.total < MIN_CSR_CALLS) continue;
-
-    const csrFinding = buildFinding(csr, window, csrCurrent, csrBaseline);
+    const csrFinding = buildFinding(csr, window, csrCurrent, baselineByCsr.get(csr));
     if (csrFinding) findings.push(csrFinding);
   }
 

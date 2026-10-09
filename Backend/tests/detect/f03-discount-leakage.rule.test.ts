@@ -36,40 +36,54 @@ describe('evaluateDiscountLeakage (F-03)', () => {
     await db.destroy();
   });
 
-  it('flags a discount-rate increase that meets the threshold', async () => {
-    const baselineDay = new Date('2096-05-20T00:00:00.000Z');
+  it('flags a week whose discount rate exceeds the threshold, with the previous week as context', async () => {
+    const previousWeekDay = new Date('2096-06-03T00:00:00.000Z');
     const currentDay = new Date('2096-06-10T00:00:00.000Z');
 
-    // Baseline (5 invoices, gross 500 each = 2500 total): discount 25 each = 5% rate.
-    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(baselineDay, 475, 25)));
-    // Current (5 invoices, gross 500 each = 2500 total): discount 100 each = 20% rate - a 15-point increase.
+    // Previous week: 5 invoices, gross 500 each, discount 25 each = 5%.
+    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(previousWeekDay, 475, 25)));
+    // Current week: 5 invoices, gross 500 each, discount 100 each = 20% - above the default 5% ceiling.
     await Promise.all(Array.from({ length: 5 }, () => invoiceRow(currentDay, 400, 100)));
 
     const findings = await evaluateDiscountLeakage(WINDOW);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ ruleCode: 'F-03', dimension: 'QUICKBOOKS_TOTAL', metricValue: 0.2, baselineValue: 0.05 });
+    expect(findings[0]).toMatchObject({
+      ruleCode: 'F-03',
+      dimension: 'QUICKBOOKS_TOTAL',
+      metricValue: 0.2,
+      baselineValue: 0.05,
+      baselineStart: new Date('2096-06-01T00:00:00.000Z'),
+      baselineEnd: WINDOW.periodStart,
+    });
   });
 
-  it('does not flag a discount-rate increase below the configured threshold', async () => {
-    const baselineDay = new Date('2096-05-20T00:00:00.000Z');
+  it('flags a high discount rate even when it has not risen', async () => {
+    const previousWeekDay = new Date('2096-06-03T00:00:00.000Z');
     const currentDay = new Date('2096-06-10T00:00:00.000Z');
+    // 10% both weeks - flat, but above the ceiling every week.
+    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(previousWeekDay, 450, 50)));
+    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(currentDay, 450, 50)));
 
-    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(baselineDay, 475, 25)));
-    // 7% rate - only a 2-point increase, below the default 5-point threshold.
-    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(currentDay, 465, 35)));
+    const findings = await evaluateDiscountLeakage(WINDOW);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ metricValue: 0.1, baselineValue: 0.1 });
+  });
+
+  it('does not flag a discount rate at or below the threshold', async () => {
+    const currentDay = new Date('2096-06-10T00:00:00.000Z');
+    // Exactly 5% - not above the ceiling.
+    await Promise.all(Array.from({ length: 5 }, () => invoiceRow(currentDay, 475, 25)));
 
     const findings = await evaluateDiscountLeakage(WINDOW);
 
     expect(findings).toEqual([]);
   });
 
-  it('does not flag when the invoice sample is below the minimum', async () => {
-    const baselineDay = new Date('2096-05-20T00:00:00.000Z');
+  it('does not flag when the current week has fewer invoices than the minimum', async () => {
     const currentDay = new Date('2096-06-10T00:00:00.000Z');
-
-    // Only 3 invoices per cohort - below the default minimum of 5.
-    await Promise.all(Array.from({ length: 3 }, () => invoiceRow(baselineDay, 475, 25)));
+    // Only 3 invoices - below the default minimum of 5.
     await Promise.all(Array.from({ length: 3 }, () => invoiceRow(currentDay, 400, 100)));
 
     const findings = await evaluateDiscountLeakage(WINDOW);

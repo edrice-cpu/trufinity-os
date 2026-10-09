@@ -1,10 +1,13 @@
 import { describe, expect, it, beforeEach, afterAll } from '@jest/globals';
 import { db } from '../../src/database';
 import { evaluateArConcentration } from '../../src/modules/detect/rules/f04c-ar-concentration.rule';
-import type { DetectionWindow } from '../../src/modules/detect/detect.types';
+import type { DetectedAlertFinding, DetectionWindow } from '../../src/modules/detect/detect.types';
 
-// F-04c is a point-in-time snapshot check (see the rule file) - period
-// start/end are stamped but not used as filter criteria, so any window works.
+// F-04c is a point-in-time snapshot over ALL outstanding QuickBooks AR (see
+// the rule file) - period start/end are stamped but not used as filters. Other
+// test files can have small balances in unified_invoices at the same time, so
+// these tests assert only on their own customers and use amounts large enough
+// that a few hundred foreign dollars can't change the outcome.
 const WINDOW: DetectionWindow = {
   periodStart: new Date('2095-06-08T00:00:00.000Z'),
   periodEnd: new Date('2095-06-15T00:00:00.000Z'),
@@ -12,13 +15,18 @@ const WINDOW: DetectionWindow = {
   baselineEnd: new Date('2095-06-08T00:00:00.000Z'),
 };
 
+const customerNames = Array.from({ length: 10 }, (_, i) => `F-04c Customer ${i + 1}`);
+
 async function invoiceRow(customerId: string, balance: number) {
   return db('unified_invoices').insert({ unified_customer_id: customerId, total_amount: balance, balance, invoice_date: new Date('2095-06-01') });
 }
 
+function byTrigger(findings: DetectedAlertFinding[], trigger: string) {
+  return findings.filter((f) => (f.details as { trigger: string }).trigger === trigger);
+}
+
 describe('evaluateArConcentration (F-04c)', () => {
-  const customerNames = ['F-04c Whale', 'F-04c Small A', 'F-04c Small B', 'F-04c Small C', 'F-04c Small D'];
-  const ids: Record<string, string> = {};
+  const ids: string[] = [];
 
   const cleanup = async () => {
     const existing = await db('unified_customers').whereIn('name', customerNames).select('id');
@@ -28,9 +36,10 @@ describe('evaluateArConcentration (F-04c)', () => {
 
   beforeEach(async () => {
     await cleanup();
+    ids.length = 0;
     for (const name of customerNames) {
       const [row] = await db('unified_customers').insert({ name }).returning('id');
-      ids[name] = row.id as string;
+      ids.push(row.id as string);
     }
   });
 
@@ -39,47 +48,36 @@ describe('evaluateArConcentration (F-04c)', () => {
     await db.destroy();
   });
 
-  it('flags a customer whose outstanding balance exceeds the concentration threshold', async () => {
-    // Whale: 8000 outstanding. Three small customers: 1000 each. Total = 11000.
-    // Whale's share = 8000/11000 = ~72.7%, well above the default 25-point threshold.
-    await invoiceRow(ids['F-04c Whale'], 8000);
-    await invoiceRow(ids['F-04c Small A'], 1000);
-    await invoiceRow(ids['F-04c Small B'], 1000);
-    await invoiceRow(ids['F-04c Small C'], 1000);
+  it('flags every single customer balance above the threshold', async () => {
+    await invoiceRow(ids[0], 30000);
+    await invoiceRow(ids[0], 20000);
+    await invoiceRow(ids[1], 12000);
+    await invoiceRow(ids[2], 9000);
 
-    const findings = await evaluateArConcentration(WINDOW);
+    const singles = byTrigger(await evaluateArConcentration(WINDOW), 'SINGLE_BALANCE')
+      .filter((f) => customerNames.includes(f.dimension));
 
-    expect(findings).toHaveLength(1);
-    expect(findings[0].ruleCode).toBe('F-04c');
-    expect(findings[0].dimension).toBe('QUICKBOOKS_TOTAL');
-    expect(findings[0].metricValue).toBeCloseTo(8000 / 11000);
-    expect((findings[0].details as { topCustomerId: string }).topCustomerId).toBe(ids['F-04c Whale']);
+    expect(singles.map((f) => f.dimension)).toEqual(['F-04c Customer 1', 'F-04c Customer 2']);
+    expect(singles[0]).toMatchObject({ ruleCode: 'F-04c', metricValue: 50000 });
+    expect(singles[0].details).toMatchObject({ customerId: ids[0], thresholdAmount: 10000 });
   });
 
-  it('does not flag a reasonably distributed AR book', async () => {
-    // 5 equal customers (20% each) - below the default 25-point threshold.
-    await invoiceRow(ids['F-04c Whale'], 1000);
-    await invoiceRow(ids['F-04c Small A'], 1000);
-    await invoiceRow(ids['F-04c Small B'], 1000);
-    await invoiceRow(ids['F-04c Small C'], 1000);
-    await invoiceRow(ids['F-04c Small D'], 1000);
+  it('flags the top five balances when together they exceed the share threshold', async () => {
+    // Five at 9,000 and five at 1,000: top five = 45,000 of 50,000 (90%). None above $10,000 on its own.
+    for (const [i, id] of ids.entries()) await invoiceRow(id, i < 5 ? 9000 : 1000);
 
     const findings = await evaluateArConcentration(WINDOW);
+    const topFive = byTrigger(findings, 'TOP_FIVE_SHARE');
 
-    expect(findings).toEqual([]);
+    expect(topFive).toHaveLength(1);
+    expect(topFive[0]).toMatchObject({ ruleCode: 'F-04c', dimension: 'QuickBooks - top 5 customer balances', metricValue: 45000 });
+    expect(byTrigger(findings, 'SINGLE_BALANCE').filter((f) => customerNames.includes(f.dimension))).toEqual([]);
   });
 
-  it('does not flag when total outstanding AR is below the minimum dollar floor', async () => {
-    // Whale holds 100% of outstanding AR, but the total (500) is below the default $1000 floor.
-    await invoiceRow(ids['F-04c Whale'], 500);
+  it('does not flag an evenly spread AR book', async () => {
+    // Ten at 5,000: top five = 50% - not above the default 50% threshold.
+    for (const id of ids) await invoiceRow(id, 5000);
 
-    const findings = await evaluateArConcentration(WINDOW);
-
-    expect(findings).toEqual([]);
-  });
-
-  it('returns no findings when there is no outstanding AR', async () => {
-    const findings = await evaluateArConcentration(WINDOW);
-    expect(findings).toEqual([]);
+    expect(byTrigger(await evaluateArConcentration(WINDOW), 'TOP_FIVE_SHARE')).toEqual([]);
   });
 });

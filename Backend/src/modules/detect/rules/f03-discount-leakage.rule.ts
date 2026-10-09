@@ -4,6 +4,7 @@ import { env } from '../../../config/env';
 import type { DetectedAlertFinding, DetectionWindow } from '../detect.types';
 
 const QBO_DIMENSION = 'QUICKBOOKS_TOTAL';
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface DiscountCohort {
   invoiceCount: number;
@@ -35,44 +36,43 @@ function discountRate(cohort: DiscountCohort): number | null {
   return cohort.grossAmount > 0 ? cohort.discountAmount / cohort.grossAmount : null;
 }
 
-// F-03: flags a rise in the aggregate discount-to-gross-revenue rate on
-// QuickBooks invoices issued in the current 7-day window vs the trailing
-// 4-week average - a proxy for discount leakage (SPEC-BI-001 F-03). Scoped to
-// QuickBooks only: discount line-item detail comes from the QBO invoice
-// mapper (DiscountLineDetail), ServiceTitan has no equivalent field ingested.
+// F-03 (AMBER): discounts as a percentage of gross revenue exceed the
+// threshold, week over week (SPEC-BI-001 Section 5.1) - evaluated on each
+// week's invoices against a fixed ceiling. The previous week's rate rides
+// along as the baseline for context only; it doesn't change whether the rule
+// fires. Scoped to QuickBooks: discount line-item detail comes from the QBO
+// invoice mapper (DiscountLineDetail).
 export async function evaluateDiscountLeakage(window: DetectionWindow, database: Knex = db): Promise<DetectedAlertFinding[]> {
-  const [current, baseline] = await Promise.all([
+  const previousWeekStart = new Date(window.periodStart.getTime() - WEEK_MS);
+  const [current, previousWeek] = await Promise.all([
     discountCohortForWindow(database, window.periodStart, window.periodEnd),
-    discountCohortForWindow(database, window.baselineStart, window.baselineEnd),
+    discountCohortForWindow(database, previousWeekStart, window.periodStart),
   ]);
 
-  if (current.invoiceCount < env.DETECT_F03_DISCOUNT_MIN_SAMPLE || baseline.invoiceCount < env.DETECT_F03_DISCOUNT_MIN_SAMPLE) return [];
+  if (current.invoiceCount < env.DETECT_F03_DISCOUNT_MIN_SAMPLE) return [];
 
   const currentRate = discountRate(current);
-  const baselineRate = discountRate(baseline);
-  if (currentRate === null || baselineRate === null) return [];
+  if (currentRate === null) return [];
+  if (currentRate * 100 <= env.DETECT_F03_DISCOUNT_RATE_THRESHOLD_PERCENT) return [];
 
-  const increasePoints = (currentRate - baselineRate) * 100;
-  if (increasePoints < env.DETECT_F03_DISCOUNT_RATE_INCREASE_THRESHOLD_POINTS) return [];
-
+  const previousRate = discountRate(previousWeek);
   return [{
     ruleCode: 'F-03',
     dimension: QBO_DIMENSION,
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    baselineStart: window.baselineStart,
-    baselineEnd: window.baselineEnd,
+    baselineStart: previousRate === null ? null : previousWeekStart,
+    baselineEnd: previousRate === null ? null : window.periodStart,
     metricValue: currentRate,
-    baselineValue: baselineRate,
+    baselineValue: previousRate,
     details: {
       currentInvoiceCount: current.invoiceCount,
       currentGrossAmount: current.grossAmount,
       currentDiscountAmount: current.discountAmount,
-      baselineInvoiceCount: baseline.invoiceCount,
-      baselineGrossAmount: baseline.grossAmount,
-      baselineDiscountAmount: baseline.discountAmount,
-      increasePoints,
-      thresholdPoints: env.DETECT_F03_DISCOUNT_RATE_INCREASE_THRESHOLD_POINTS,
+      previousWeekInvoiceCount: previousWeek.invoiceCount,
+      previousWeekGrossAmount: previousWeek.grossAmount,
+      previousWeekDiscountAmount: previousWeek.discountAmount,
+      thresholdPercent: env.DETECT_F03_DISCOUNT_RATE_THRESHOLD_PERCENT,
     },
   }];
 }

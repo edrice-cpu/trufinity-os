@@ -109,34 +109,33 @@ const envSchema = z.object({
   // Detect layer thresholds (SPEC-BI-001 exact values not confirmed yet -
   // these are reasonable defaults, deliberately env-tunable so they can be
   // corrected without a code change once the spec's exact numbers are known).
-  // D-01: alert when the current 7-day booking rate drops at least this many
-  // percentage points below the trailing 4-week average booking rate.
-  DETECT_D01_BOOKING_RATE_DROP_THRESHOLD_POINTS: z.coerce.number().default(10),
+  // D-01 (RED, SPEC-BI-001 5.3): alert when the Lace booking rate over the
+  // rolling 7 days falls below this percentage, overall or for any CSR.
+  DETECT_D01_BOOKING_RATE_FLOOR_PERCENT: z.coerce.number().default(60),
   // D-06: alert when an objection category's current 7-day count is at least
   // this many times its trailing 4-week weekly average (min sample size below).
   DETECT_D06_OBJECTION_SPIKE_MULTIPLIER: z.coerce.number().default(2),
   DETECT_D06_OBJECTION_MIN_SAMPLE: z.coerce.number().default(3),
-  // F-04: alert when the share of invoices (QuickBooks or ServiceTitan) issued
-  // in the current 7-day cohort that are now overdue-and-unpaid rises at least
-  // this many percentage points above the trailing 4-week cohort average.
-  DETECT_F04_AR_OVERDUE_RATE_INCREASE_THRESHOLD_POINTS: z.coerce.number().default(10),
-  DETECT_F04_AR_MIN_SAMPLE: z.coerce.number().default(5),
-  // F-03: alert when the aggregate discount-to-gross rate on QuickBooks
-  // invoices issued in the current 7-day window rises at least this many
-  // percentage points above the trailing 4-week average.
-  DETECT_F03_DISCOUNT_RATE_INCREASE_THRESHOLD_POINTS: z.coerce.number().default(5),
+  // F-04 (AMBER, SPEC-BI-001 5.1): alert on any open balance (QuickBooks or
+  // ServiceTitan) that crossed the 30/60/90-day past-due bracket during the
+  // window, OR when total QuickBooks AR grew at least this many percent over
+  // the trailing 7 days.
+  DETECT_F04_AR_GROWTH_THRESHOLD_PERCENT: z.coerce.number().default(15),
+  // F-03 (AMBER, SPEC-BI-001 5.1): alert when discounts as a percentage of
+  // gross revenue on QuickBooks invoices issued in the current week exceed
+  // this percentage. Min invoice count guards against a one-invoice week.
+  DETECT_F03_DISCOUNT_RATE_THRESHOLD_PERCENT: z.coerce.number().default(5),
   DETECT_F03_DISCOUNT_MIN_SAMPLE: z.coerce.number().default(5),
-  // F-04c: alert when a single customer's outstanding QuickBooks AR balance
-  // is at least this many percentage points of total outstanding AR. Only
-  // evaluated once total outstanding AR is at least this dollar amount
-  // (guards against a tiny AR book making one customer look "concentrated").
-  DETECT_F04C_AR_CONCENTRATION_THRESHOLD_POINTS: z.coerce.number().default(25),
+  // F-04c (AMBER, SPEC-BI-001 5.1): alert on any single customer whose
+  // outstanding QuickBooks balance is above this dollar amount, OR when the
+  // top five customer balances together exceed this share of total AR (only
+  // once total AR is at least the min outstanding).
+  DETECT_F04C_SINGLE_BALANCE_THRESHOLD: z.coerce.number().default(10000),
+  DETECT_F04C_TOP5_SHARE_THRESHOLD_PERCENT: z.coerce.number().default(50),
   DETECT_F04C_AR_MIN_OUTSTANDING: z.coerce.number().default(1000),
-  // F-04d: alert when the current 7-day total QuickBooks credit-memo dollar
-  // amount issued is at least this many times the trailing 4-week weekly
-  // average (min sample count below avoids flagging a single small memo).
-  DETECT_F04D_CREDITMEMO_SPIKE_MULTIPLIER: z.coerce.number().default(2),
-  DETECT_F04D_CREDITMEMO_MIN_SAMPLE: z.coerce.number().default(3),
+  // F-04d (RED, SPEC-BI-001 5.1): alert on any single credit memo, invoice
+  // adjustment, or invoice-total reduction at or above this dollar amount.
+  DETECT_F04D_MIN_AMOUNT: z.coerce.number().default(250),
   // F-05: alert when ServiceTitan's and QuickBooks' recorded revenue for
   // invoices issued in the current 7-day window diverge by at least this
   // many percentage points (of ServiceTitan's total) - ServiceTitan is the
@@ -144,6 +143,32 @@ const envSchema = z.object({
   // against it, so a persistent gap signals a sync/booking problem.
   DETECT_F05_REVENUE_GAP_THRESHOLD_POINTS: z.coerce.number().default(10),
   DETECT_F05_MIN_REVENUE: z.coerce.number().default(1000),
+  // O-series thresholds follow SPEC-BI-001 Section 5.2 trigger conditions;
+  // the values themselves are starting points pending owner confirmation.
+  // O-02 (RED): alert when a department's (ServiceTitan business unit) or
+  // technician's callback rate - recall (recallForId) or warranty
+  // (warrantyId) jobs - in the current 7 days rises at least this many
+  // percentage points above its own trailing 4-week rate. Each department/
+  // technician needs at least the min sample of jobs in both windows.
+  DETECT_O02_CALLBACK_RATE_INCREASE_THRESHOLD_POINTS: z.coerce.number().default(5),
+  DETECT_O02_MIN_SAMPLE: z.coerce.number().default(10),
+  // O-05 (AMBER): alert when a technician's average ticket on jobs completed
+  // in the current 7 days is more than this many percent above OR below the
+  // rest of the team's average. Technicians with fewer completed sold jobs
+  // than the min sample are skipped; needs at least MIN_TECHNICIANS qualifying.
+  DETECT_O05_AVG_TICKET_BAND_PERCENT: z.coerce.number().default(40),
+  DETECT_O05_MIN_JOBS_PER_TECHNICIAN: z.coerce.number().default(3),
+  DETECT_O05_MIN_TECHNICIANS: z.coerce.number().default(3),
+  // O-06 (AMBER): alert on each ServiceTitan job completed in the field at
+  // least this many days ago whose invoice is still not posted (missing, or
+  // syncStatus 'Pending'). Jobs completed before the lookback are ignored so
+  // an old backlog doesn't flood the brief on first run.
+  DETECT_O06_NOT_INVOICED_DAYS: z.coerce.number().default(3),
+  DETECT_O06_LOOKBACK_DAYS: z.coerce.number().default(90),
+  // O-07 (AMBER): alert on each new ServiceTitan job at the same location
+  // (address) as another job completed within this many days before it - on
+  // the same equipment when both jobs carry equipment ids.
+  DETECT_O07_REPEAT_WINDOW_DAYS: z.coerce.number().default(30),
 
   // R-01: Unanswered Inbound Email Detection (Google Workspace responsiveness rule)
   // ⚠ PRODUCT CONFIRMATION REQUIRED: GOOGLE_R01_THRESHOLD_MINUTES default (240 = 4 business hours)

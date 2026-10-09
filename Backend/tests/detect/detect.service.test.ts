@@ -7,6 +7,10 @@ import { DetectService } from '../../src/modules/detect/detect.service';
 const NOW = new Date('2097-06-15T00:00:00.000Z');
 const BASELINE_DAY = new Date('2097-05-20T00:00:00.000Z');
 const CURRENT_DAY = new Date('2097-06-12T00:00:00.000Z');
+// This file only seeds Lace calls. Snapshot rules like F-04c read the whole
+// AR book, which other test files populate concurrently, so assertions are
+// scoped to the rules this file's fixtures actually drive.
+const LACE_RULES = ['D-01', 'D-06'];
 
 function callRow(receivedAt: Date, booked: boolean, objections: string[] | null = null) {
   const id = randomUUID();
@@ -45,10 +49,10 @@ describe('DetectService', () => {
 
     const result = await new DetectService().run(NOW);
 
-    const ruleCodes = result.findings.map((f) => f.ruleCode).sort();
+    const ruleCodes = result.findings.map((f) => f.ruleCode).filter((code) => LACE_RULES.includes(code)).sort();
     expect(ruleCodes).toEqual(['D-01', 'D-06']);
 
-    const stored = await db('detected_alerts').where('period_start', '>=', '2097-01-01').andWhere('period_start', '<', '2098-01-01');
+    const stored = await db('detected_alerts').whereIn('rule_code', LACE_RULES).andWhere('period_start', '>=', '2097-01-01').andWhere('period_start', '<', '2098-01-01');
     expect(stored).toHaveLength(2);
   });
 
@@ -70,8 +74,8 @@ describe('DetectService', () => {
   it('persists no rows when no rule finds anything', async () => {
     const result = await new DetectService().run(NOW);
 
-    expect(result.findings).toHaveLength(0);
-    const stored = await db('detected_alerts').where('period_start', '>=', '2097-01-01').andWhere('period_start', '<', '2098-01-01');
+    expect(result.findings.filter((f) => LACE_RULES.includes(f.ruleCode))).toHaveLength(0);
+    const stored = await db('detected_alerts').whereIn('rule_code', LACE_RULES).andWhere('period_start', '>=', '2097-01-01').andWhere('period_start', '<', '2098-01-01');
     expect(stored).toHaveLength(0);
   });
 });
