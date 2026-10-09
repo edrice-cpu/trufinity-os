@@ -141,6 +141,13 @@ const paths: Record<string, ReactNode> = {
       <path d="M19 12H5M12 19l-7-7 7-7" />
     </>
   ),
+  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  "external-link": (
+    <>
+      <path d="M14 4h6v6M20 4l-9 9" />
+      <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </>
+  ),
   user: (
     <>
       <circle cx="12" cy="8" r="4" />

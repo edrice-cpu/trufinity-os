@@ -4,26 +4,60 @@ import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/States";
-import { acknowledgeWorkItemAction, resolveWorkItemAction } from "@/app/(dashboard)/escalations/actions";
+import { acknowledgeWorkItemAction, dismissWorkItemAction, resolveWorkItemAction } from "@/app/(dashboard)/escalations/actions";
 import type { WorkItem } from "@/lib/api/google";
 
 const MAX_NOTE = 2000;
 
 export function WorkItemActions({ item }: { item: WorkItem }) {
   const canAcknowledge = item.workflowStatus === "OPEN";
-  const canResolve = item.workflowStatus === "OPEN" || item.workflowStatus === "ACKNOWLEDGED";
+  const canClose = item.workflowStatus === "OPEN" || item.workflowStatus === "ACKNOWLEDGED";
 
-  if (!canAcknowledge && !canResolve) return null;
+  if (!canAcknowledge && !canClose) return null;
 
   return (
     <div className="flex items-center gap-1">
-      {canAcknowledge && <AcknowledgeButton id={item.id} />}
-      {canResolve && <ResolveButton id={item.id} />}
+      {canAcknowledge && (
+        <ActionButton
+          action={() => acknowledgeWorkItemAction(item.id)}
+          icon="check"
+          label="Ack"
+          title="Acknowledge (claim) this item"
+          fallbackError="Failed to acknowledge."
+          className="text-info hover:bg-info-soft"
+        />
+      )}
+      {canClose && <ResolveButton id={item.id} />}
+      {canClose && (
+        <ActionButton
+          action={() => dismissWorkItemAction(item.id)}
+          icon="x"
+          label="Not a problem"
+          title="Not a problem — logged and used to tune the classifier"
+          fallbackError="Failed to mark as not a problem."
+          className="text-foreground/60 hover:bg-surface-muted"
+        />
+      )}
     </div>
   );
 }
 
-function AcknowledgeButton({ id }: { id: string }) {
+/** One-tap server action button that refreshes the page on success and shows the error inline otherwise. */
+function ActionButton({
+  action,
+  icon,
+  label,
+  title,
+  fallbackError,
+  className,
+}: {
+  action: () => Promise<{ ok: boolean; message?: string }>;
+  icon: "check" | "x";
+  label: string;
+  title: string;
+  fallbackError: string;
+  className: string;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -31,11 +65,11 @@ function AcknowledgeButton({ id }: { id: string }) {
   const handleClick = () => {
     setError(null);
     startTransition(async () => {
-      const result = await acknowledgeWorkItemAction(id);
+      const result = await action();
       if (result.ok) {
         router.refresh();
       } else {
-        setError(result.message ?? "Failed to acknowledge.");
+        setError(result.message ?? fallbackError);
       }
     });
   };
@@ -45,12 +79,11 @@ function AcknowledgeButton({ id }: { id: string }) {
       <button
         onClick={handleClick}
         disabled={pending}
-        title="Acknowledge this item"
-        aria-label="Acknowledge"
-        className="inline-flex items-center gap-1 rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium text-info hover:bg-info-soft transition disabled:opacity-50"
+        title={title}
+        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${className}`}
       >
-        {pending ? <Spinner className="h-3 w-3" /> : <Icon name="check" className="h-3.5 w-3.5" />}
-        Ack
+        {pending ? <Spinner className="h-3 w-3" /> : <Icon name={icon} className="h-3.5 w-3.5" />}
+        {label}
       </button>
       {error && (
         <span className="absolute left-0 top-full mt-1 z-10 whitespace-nowrap rounded bg-danger px-2 py-1 text-xs text-white">
@@ -68,9 +101,8 @@ function ResolveButton({ id }: { id: string }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        title="Resolve this item"
-        aria-label="Resolve"
-        className="inline-flex items-center gap-1 rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium text-success hover:bg-success-soft transition"
+        title="Resolve this item (requires a note)"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1 text-xs font-medium text-success hover:bg-success-soft transition"
       >
         <Icon name="check-circle" className="h-3.5 w-3.5" />
         Resolve

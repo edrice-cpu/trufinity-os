@@ -13,15 +13,9 @@ import { FieldOperationsSnapshot } from "@/components/sections/servicetitan/Fiel
 import { SkeletonCard } from "@/components/ui/States";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/Icon";
-import { PriorityBadge } from "@/components/ui/Badge";
-import { PendingState } from "@/components/ui/States";
+import { OpenEscalations, OpenEscalationsSkeleton } from "@/components/sections/OpenEscalations";
 import { companyMeta } from "@/lib/company";
 import { formatReportDate } from "@/lib/format";
-import { sectionReady } from "@/lib/sections";
-import type { FlaggedItem } from "@/lib/types";
-
-// TODO: replace with alerts API data once available.
-const flaggedItems: FlaggedItem[] = [];
 
 const quickLinks = [
   { href: "/daily-brief", label: "Daily Executive Brief", description: "Today's brief in the fixed spec section order", icon: "sun" },
@@ -45,7 +39,6 @@ export default async function DashboardPage({
 }) {
   const sp = await searchParams;
   const alertsRange = readDateRange(sp, ALERTS_FILTER_PREFIX);
-  const topAlerts = flaggedItems.filter((item) => item.status === "open" || item.status === "in_progress").slice(0, 4);
 
   return (
     <div>
@@ -79,36 +72,16 @@ export default async function DashboardPage({
           <Card>
             <CardHeader
               title="Needs your attention"
-              subtitle="Open escalations and red flags across the business"
+              subtitle="Open customer escalations — red flags will join once those rules ship"
               action={
-                <Link href="/red-flags" className="text-xs font-medium text-teal-dark hover:underline">
+                <Link href="/escalations" className="text-xs font-medium text-teal-dark hover:underline">
                   View all
                 </Link>
               }
             />
-            {!(sectionReady.escalations || sectionReady.redFlags) ? (
-              <PendingState />
-            ) : (
-            <div className="divide-y divide-border-subtle">
-              {topAlerts.map((item) => (
-                <Link
-                  key={item.id}
-                  href={`/flagged/${item.id}`}
-                  className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0 hover:opacity-80"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-muted text-foreground/50">
-                    <Icon name={item.type === "escalation" ? "alert-circle" : "flag"} className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{item.title}</p>
-                    <p className="truncate text-xs text-foreground/50">{item.customer} &middot; {item.source}</p>
-                  </div>
-                  <PriorityBadge priority={item.priority} />
-                  <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-foreground/30" />
-                </Link>
-              ))}
-            </div>
-            )}
+            <Suspense fallback={<OpenEscalationsSkeleton />}>
+              <OpenEscalations limit={4} />
+            </Suspense>
           </Card>
         </div>
 

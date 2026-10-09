@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { PendingState, SkeletonTable } from "@/components/ui/States";
 import { SyncStatusPanel } from "@/components/sections/servicetitan/SyncStatusPanel";
+import { OpenEscalations, OpenEscalationsSkeleton } from "@/components/sections/OpenEscalations";
 import { companyMeta } from "@/lib/company";
 import { formatReportDate } from "@/lib/format";
 import { sectionReady, type SectionId } from "@/lib/sections";
@@ -27,6 +28,17 @@ const sectionContent: Partial<Record<SectionId, ReactNode>> = {
     <Suspense fallback={<SkeletonTable rows={3} />}>
       <SyncStatusPanel />
     </Suspense>
+  ),
+  // Spec 7 lists all open E-series flags; 10 is a safety cap (typically fewer than 5 a day, spec 6.4).
+  escalations: (
+    <>
+      <Suspense fallback={<OpenEscalationsSkeleton />}>
+        <OpenEscalations limit={10} />
+      </Suspense>
+      <Link href="/escalations" className="mt-4 inline-block text-xs font-medium text-teal-dark hover:underline">
+        View all escalations
+      </Link>
+    </>
   ),
 };
 

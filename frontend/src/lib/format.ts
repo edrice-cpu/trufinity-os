@@ -64,6 +64,11 @@ export function formatRatio(value: string | null | undefined): string {
   return percentFormatter.format(value as Intl.StringNumericLiteral);
 }
 
+/** Formats a numeric 0–1 fraction (e.g. classifier confidence 0.913) as a percentage ("91.3%"). */
+export function formatFraction(value: number | null | undefined): string {
+  return value == null ? "—" : percentFormatter.format(value);
+}
+
 export function formatDecimal(value: string | null | undefined): string {
   if (value == null || value.trim() === "") return "—";
   return numberFormatter.format(value as Intl.StringNumericLiteral);

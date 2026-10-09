@@ -34,6 +34,28 @@ export async function acknowledgeWorkItemAction(id: string): Promise<ActionResul
   }
 }
 
+// One-tap "not a problem" feedback (spec 6.4) — logged on the backend and used for classifier tuning.
+export async function dismissWorkItemAction(id: string): Promise<ActionResult> {
+  const token = await getSessionToken();
+  if (!token) redirect(LOGIN_PATH);
+
+  try {
+    const response = await backendFetch<{ data: WorkItem }>(
+      `/api/google/work-items/${encodeURIComponent(id)}/not-a-problem`,
+      { method: "POST", body: {}, token },
+    );
+    if (response.status === 401) redirect(LOGIN_PATH);
+    if (response.status === 404) return { ok: false, message: "Work item not found or already closed." };
+    if (!response.ok) {
+      const msg = (response.data as unknown as { message?: string } | null)?.message;
+      return { ok: false, message: msg ?? "Failed to mark as not a problem." };
+    }
+    return { ok: true, data: response.data?.data };
+  } catch {
+    return { ok: false, message: "Unable to reach the backend." };
+  }
+}
+
 export async function resolveWorkItemAction(id: string, resolutionNote: string): Promise<ActionResult> {
   const token = await getSessionToken();
   if (!token) redirect(LOGIN_PATH);

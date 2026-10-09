@@ -2,7 +2,8 @@ import "server-only";
 import { backendFetch } from "@/lib/auth/backend";
 
 export type WorkItemWorkType = "ESCALATION" | "REVIEW_REQUIRED";
-export type WorkItemWorkflowStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED" | "CLOSED";
+/** NOT_A_PROBLEM = dismissed via the one-tap "not a problem" feedback (spec 6.4); terminal like RESOLVED. */
+export type WorkItemWorkflowStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED" | "CLOSED" | "NOT_A_PROBLEM";
 export type WorkItemSlaState = "UNCONFIGURED" | "ON_TRACK" | "BREACHED" | "MET";
 
 export interface WorkItem {
@@ -19,6 +20,12 @@ export interface WorkItem {
   acknowledgedAt: string | null;
   resolvedAt: string | null;
   resolutionNote: string | null;
+  dismissedAt: string | null;
+  dismissedByUserId: string | null;
+  dismissalReason: string | null;
+  /** Set only when exactly one customer matched the sender email; otherwise null. */
+  unifiedCustomerId: string | null;
+  customerDisplayName: string | null;
   createdAt: string;
   updatedAt: string;
   classificationId: string;
@@ -30,6 +37,7 @@ export interface WorkItem {
   senderFrom: string | null;
 }
 
+/** acknowledged / resolved / breached count both work types; escalation + reviewRequired split the open items. */
 export interface WorkItemStats {
   totalOpen: number;
   escalation: number;

@@ -7,7 +7,8 @@ const workTypeStyles: Record<WorkItemWorkType, string> = {
 
 const workTypeLabels: Record<WorkItemWorkType, string> = {
   ESCALATION: "Escalation",
-  REVIEW_REQUIRED: "Review Required",
+  // Below the classifier confidence floor — review queue, never the brief (spec 6.3).
+  REVIEW_REQUIRED: "Needs review",
 };
 
 const workflowStyles: Record<WorkItemWorkflowStatus, string> = {
@@ -15,6 +16,7 @@ const workflowStyles: Record<WorkItemWorkflowStatus, string> = {
   ACKNOWLEDGED: "bg-info-soft text-info",
   RESOLVED: "bg-success-soft text-success",
   CLOSED: "bg-surface-muted text-foreground/60",
+  NOT_A_PROBLEM: "bg-surface-muted text-foreground/60",
 };
 
 const workflowLabels: Record<WorkItemWorkflowStatus, string> = {
@@ -22,6 +24,7 @@ const workflowLabels: Record<WorkItemWorkflowStatus, string> = {
   ACKNOWLEDGED: "Acknowledged",
   RESOLVED: "Resolved",
   CLOSED: "Closed",
+  NOT_A_PROBLEM: "Not a problem",
 };
 
 const slaStyles: Record<WorkItemSlaState, string> = {

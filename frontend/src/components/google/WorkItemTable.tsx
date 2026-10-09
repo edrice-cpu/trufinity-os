@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/ui/States";
-import { Pagination, listHref, lastPageOf } from "@/components/ui/Pagination";
+import { Pagination, listHref } from "@/components/ui/Pagination";
 import { WorkTypeBadge, WorkflowBadge, SlaBadge, ClassificationLabel } from "./WorkItemBadges";
 import { WorkItemActions } from "./WorkItemActions";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatFraction } from "@/lib/format";
 import type { WorkItem, WorkItemWorkType, WorkItemWorkflowStatus, WorkItemSlaState } from "@/lib/api/google";
 
 const BASE_PATH = "/escalations";
@@ -17,24 +17,28 @@ export function WorkItemTable({
   page,
   pageSize,
   query,
+  workType,
 }: {
   items: WorkItem[];
   total: number;
   page: number;
   pageSize: number;
   query: Query;
+  workType: WorkItemWorkType;
 }) {
   if (items.length === 0) {
     return (
       <EmptyState
         icon="check-circle"
-        title="No work items match these filters"
-        description="All clear — no escalations or review-required items found for the current selection."
+        title={workType === "REVIEW_REQUIRED" ? "Review queue is empty" : "No escalations match these filters"}
+        description={
+          workType === "REVIEW_REQUIRED"
+            ? "No low-confidence classifications are waiting for review."
+            : "All clear — no customer escalations found for the current selection."
+        }
       />
     );
   }
-
-  const lastPage = lastPageOf(total, pageSize);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border-subtle bg-surface">
@@ -46,7 +50,7 @@ export function WorkItemTable({
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Classification</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Status</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">SLA</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Sender</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Customer</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Mailbox</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Classified</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-foreground/45">Actions</th>
@@ -62,7 +66,7 @@ export function WorkItemTable({
                   <div className="flex flex-col gap-1">
                     <ClassificationLabel label={item.classificationLabel} />
                     <span className="text-xs text-foreground/40">
-                      {(item.confidence * 100).toFixed(0)}% conf.
+                      {formatFraction(item.confidence)} conf.
                     </span>
                   </div>
                 </td>
@@ -79,15 +83,17 @@ export function WorkItemTable({
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3.5 max-w-[180px]">
-                  <span className="block truncate text-xs text-foreground/70" title={item.senderFrom ?? undefined}>
-                    {item.senderFrom ?? "—"}
-                  </span>
+                <td className="px-4 py-3.5 max-w-[200px]">
+                  <CustomerCell item={item} />
                 </td>
                 <td className="px-4 py-3.5 max-w-[160px]">
-                  <span className="block truncate text-xs text-foreground/70" title={item.mailboxAddress}>
+                  <Link
+                    href={listHref(BASE_PATH, { ...query, mailbox_address: item.mailboxAddress })}
+                    className="block truncate text-xs text-foreground/70 hover:text-teal-dark hover:underline"
+                    title={`Show only ${item.mailboxAddress}`}
+                  >
                     {item.mailboxAddress}
-                  </span>
+                  </Link>
                 </td>
                 <td className="px-4 py-3.5 whitespace-nowrap">
                   <span className="text-xs text-foreground/55">{formatDateTime(item.classifiedAt)}</span>
@@ -122,16 +128,44 @@ export function WorkItemTable({
   );
 }
 
+/** Customer per spec 6.3; falls back to the sender when no unique customer matched. */
+function CustomerCell({ item }: { item: WorkItem }) {
+  if (item.customerDisplayName) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="block truncate text-xs font-medium text-foreground/80" title={item.customerDisplayName}>
+          {item.customerDisplayName}
+        </span>
+        {item.senderFrom && (
+          <span className="block truncate text-xs text-foreground/40" title={item.senderFrom}>
+            {item.senderFrom}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="block truncate text-xs text-foreground/70" title={item.senderFrom ?? undefined}>
+        {item.senderFrom ?? "—"}
+      </span>
+      <span className="text-xs text-foreground/40">No customer match</span>
+    </div>
+  );
+}
+
 export function WorkItemFilterChips({
   query,
   workType,
   workflowStatus,
   slaState,
+  mailboxAddress,
 }: {
   query: Query;
-  workType?: WorkItemWorkType;
+  workType: WorkItemWorkType;
   workflowStatus?: WorkItemWorkflowStatus;
   slaState?: WorkItemSlaState;
+  mailboxAddress?: string;
 }) {
   const chip = (
     param: string,
@@ -155,24 +189,91 @@ export function WorkItemFilterChips({
     );
   };
 
+  // Escalations and the review queue are separate lists (spec 6.3), so the type is a tab, never "all".
+  const tab = (value: WorkItemWorkType, label: string) => {
+    const isActive = workType === value;
+    // Changing the list drops the other filters, since a status/SLA chosen for one list rarely applies to the other.
+    const href = listHref(BASE_PATH, value === "ESCALATION" ? {} : { work_type: value });
+    return (
+      <Link
+        key={value}
+        href={href}
+        aria-current={isActive ? "page" : undefined}
+        className={`-mb-px border-b-2 px-1 pb-2.5 text-sm font-medium transition ${
+          isActive ? "border-ink text-foreground" : "border-transparent text-foreground/50 hover:text-foreground"
+        }`}
+      >
+        {label}
+      </Link>
+    );
+  };
+
   return (
-    <div className="mb-5 flex flex-wrap gap-3">
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by type">
-        {chip("work_type", "ESCALATION", "Escalations", workType)}
-        {chip("work_type", "REVIEW_REQUIRED", "Review Required", workType)}
+    <div className="mb-5">
+      <nav className="mb-4 flex gap-6 border-b border-border-subtle" aria-label="Work item list">
+        {tab("ESCALATION", "Escalations")}
+        {tab("REVIEW_REQUIRED", "Review queue")}
+      </nav>
+      <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+          {chip("workflow_status", "OPEN", "Open", workflowStatus)}
+          {chip("workflow_status", "ACKNOWLEDGED", "Acknowledged", workflowStatus)}
+          {chip("workflow_status", "RESOLVED", "Resolved", workflowStatus)}
+          {chip("workflow_status", "NOT_A_PROBLEM", "Not a problem", workflowStatus)}
+        </div>
+        <div className="h-4 w-px self-center bg-border-subtle" aria-hidden="true" />
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by SLA">
+          {chip("sla_state", "BREACHED", "SLA Breached", slaState)}
+          {chip("sla_state", "ON_TRACK", "SLA On Track", slaState)}
+          {chip("sla_state", "MET", "SLA Met", slaState)}
+        </div>
       </div>
-      <div className="h-4 w-px self-center bg-border-subtle" aria-hidden="true" />
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
-        {chip("workflow_status", "OPEN", "Open", workflowStatus)}
-        {chip("workflow_status", "ACKNOWLEDGED", "Acknowledged", workflowStatus)}
-        {chip("workflow_status", "RESOLVED", "Resolved", workflowStatus)}
-      </div>
-      <div className="h-4 w-px self-center bg-border-subtle" aria-hidden="true" />
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by SLA">
-        {chip("sla_state", "BREACHED", "SLA Breached", slaState)}
-        {chip("sla_state", "ON_TRACK", "SLA On Track", slaState)}
-        {chip("sla_state", "MET", "SLA Met", slaState)}
-      </div>
+      <MailboxFilter query={query} mailboxAddress={mailboxAddress} />
+    </div>
+  );
+}
+
+/**
+ * Plain GET form so it works without client JS; the other active filters ride along as hidden inputs
+ * and the page resets to 1. The backend matches the mailbox exactly (addresses are stored lowercased).
+ */
+function MailboxFilter({ query, mailboxAddress }: { query: Query; mailboxAddress?: string }) {
+  const rest: Query = { ...query, mailbox_address: undefined };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <form method="get" action={BASE_PATH} className="flex items-center gap-2" role="search">
+        {Object.entries(rest).map(([key, value]) =>
+          value ? <input key={key} type="hidden" name={key} value={value} /> : null,
+        )}
+        <label htmlFor="mailbox-filter" className="sr-only">
+          Filter by mailbox
+        </label>
+        <input
+          key={mailboxAddress ?? ""}
+          id="mailbox-filter"
+          name="mailbox_address"
+          type="email"
+          defaultValue={mailboxAddress}
+          placeholder="Filter by mailbox, e.g. service@trufinity.ca"
+          className="w-72 max-w-full rounded-full border border-border-subtle bg-surface px-3.5 py-1.5 text-xs text-foreground placeholder:text-foreground/35 focus:border-teal-dark/50 focus:outline-none"
+        />
+        <button
+          type="submit"
+          className="rounded-full bg-surface-muted px-3.5 py-1.5 text-xs font-medium text-foreground/70 transition hover:bg-surface-muted/70"
+        >
+          Apply
+        </button>
+      </form>
+      {mailboxAddress && (
+        <Link
+          href={listHref(BASE_PATH, rest)}
+          className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white"
+          aria-label={`Clear mailbox filter ${mailboxAddress}`}
+        >
+          {mailboxAddress}
+          <Icon name="x" className="h-3 w-3" />
+        </Link>
+      )}
     </div>
   );
 }
