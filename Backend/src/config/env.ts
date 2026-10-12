@@ -7,7 +7,10 @@ import { sanitizeApprovedMailboxAllowlist } from '../modules/google/gmail-policy
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Fails closed: an unset NODE_ENV runs as production, so dev-only routes stay
+  // shut and production config checks apply. Local dev sets
+  // NODE_ENV=development explicitly in .env (see .env.example).
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   PORT: z.string().transform(Number).default(3000),
   DB_HOST: z.string().min(1),
   DB_PORT: z.string().transform(Number).default(5432),
@@ -36,6 +39,10 @@ const envSchema = z.object({
   QBO_CLIENT_ID: z.string().default(''),
   QBO_CLIENT_SECRET: z.string().default(''),
   QBO_REDIRECT_URI: z.string().default(''),
+  // The one QuickBooks company (realmId) this deployment may connect to. When
+  // set, the OAuth callback rejects any other company; when empty, it only
+  // accepts the company that is already connected (or any, if none is yet).
+  QBO_REALM_ID: z.string().default(''),
   QBO_AUTH_URL: z.string().default(''),
   QBO_TOKEN_URL: z.string().default(''),
   QBO_REVOKE_URL: z.string().default('https://developer.api.intuit.com/v2/oauth2/tokens/revoke'),

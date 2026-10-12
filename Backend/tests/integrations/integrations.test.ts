@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 import { env } from '../../src/config/env';
@@ -6,7 +6,7 @@ import type { AuthService } from '../../src/modules/auth/auth.service';
 import { createIntegrationsRouter } from '../../src/modules/integrations/integrations.routes';
 import { IntegrationsService } from '../../src/modules/integrations/integrations.service';
 import { qboApiClient } from '../../src/modules/quickbooks/api.client';
-import { qboAuthService } from '../../src/modules/quickbooks/auth.service';
+import { QboAuthService, qboAuthService, type QboTokenStore } from '../../src/modules/quickbooks/auth.service';
 import { quickbooksRouter } from '../../src/modules/quickbooks/quickbooks.routes';
 
 const VALID_TOKEN = 'valid-session-token-123';
@@ -106,6 +106,9 @@ describe('Integrations routes', () => {
 });
 
 describe('QuickBooks OAuth callback', () => {
+  // The realm check reads the shared token table; pin it here so other test
+  // files' rows can't change these outcomes. Tests that need a rejection override it.
+  beforeEach(() => { jest.spyOn(qboAuthService, 'isRealmAllowed').mockResolvedValue(true); });
   afterEach(() => { jest.restoreAllMocks(); });
 
   const app = express();
@@ -135,13 +138,37 @@ describe('QuickBooks OAuth callback', () => {
     expect(res.headers.location).toBe(`${env.APP_BASE_URL}/integrations?quickbooks=failed`);
   });
 
-  it('keeps the JSON response for flows started directly via /authorize', async () => {
+  it('keeps the JSON response for flows not started from the web app', async () => {
     jest.spyOn(qboAuthService, 'exchangeCodeForToken').mockResolvedValue();
     jest.spyOn(qboApiClient, 'get').mockResolvedValue({ CompanyInfo: { CompanyName: 'Co' } });
     const state = stateFrom(qboAuthService.getAuthorizationUrl());
     const res = await request(app).get(`/api/integrations/quickbooks/callback?code=c&realmId=r&state=${state}`);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'success', company: 'Co' });
+  });
+
+  it('has no unauthenticated route that starts an OAuth flow', async () => {
+    const getAuthorizationUrl = jest.spyOn(qboAuthService, 'getAuthorizationUrl');
+    const res = await request(app).get('/api/integrations/quickbooks/authorize');
+    expect(res.status).not.toBe(302);
+    expect(res.headers.location).toBeUndefined();
+    expect(getAuthorizationUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a callback for a QuickBooks company that is not allowed, without exchanging the code', async () => {
+    jest.spyOn(qboAuthService, 'isRealmAllowed').mockResolvedValue(false);
+    const exchange = jest.spyOn(qboAuthService, 'exchangeCodeForToken').mockResolvedValue();
+
+    const jsonState = stateFrom(qboAuthService.getAuthorizationUrl());
+    const json = await request(app).get(`/api/integrations/quickbooks/callback?code=c&realmId=other&state=${jsonState}`);
+    expect(json.status).toBe(400);
+    expect(json.body).toEqual({ status: 'error', message: 'This QuickBooks company is not allowed for this deployment.' });
+
+    const appState = stateFrom(qboAuthService.getAuthorizationUrl({ returnToApp: true }));
+    const redirect = await request(app).get(`/api/integrations/quickbooks/callback?code=c&realmId=other&state=${appState}`);
+    expect(redirect.headers.location).toBe(`${env.APP_BASE_URL}/integrations?quickbooks=failed`);
+
+    expect(exchange).not.toHaveBeenCalled();
   });
 
   it('rejects unknown or replayed state', async () => {
@@ -151,5 +178,30 @@ describe('QuickBooks OAuth callback', () => {
     await request(app).get(`/api/integrations/quickbooks/callback?code=c&realmId=r&state=${state}`);
     const replay = await request(app).get(`/api/integrations/quickbooks/callback?code=c&realmId=r&state=${state}`);
     expect(replay.status).toBe(400);
+  });
+});
+
+describe('QboAuthService.isRealmAllowed', () => {
+  const originalRealm = env.QBO_REALM_ID;
+  afterEach(() => { env.QBO_REALM_ID = originalRealm; });
+
+  const storeWith = (realmId: string | null): QboTokenStore => ({
+    save: async () => undefined,
+    clear: async () => undefined,
+    load: async () => (realmId ? { realmId, accessToken: 'a', refreshToken: 'r', accessTokenExpiry: 0, refreshTokenExpiry: 0 } : null),
+  });
+
+  it('accepts only QBO_REALM_ID when it is configured', async () => {
+    env.QBO_REALM_ID = 'realm-1';
+    const service = new QboAuthService(storeWith(null));
+    await expect(service.isRealmAllowed('realm-1')).resolves.toBe(true);
+    await expect(service.isRealmAllowed('realm-2')).resolves.toBe(false);
+  });
+
+  it('without QBO_REALM_ID, accepts only the already-connected company, or any when none is connected', async () => {
+    env.QBO_REALM_ID = '';
+    await expect(new QboAuthService(storeWith('realm-1')).isRealmAllowed('realm-1')).resolves.toBe(true);
+    await expect(new QboAuthService(storeWith('realm-1')).isRealmAllowed('realm-2')).resolves.toBe(false);
+    await expect(new QboAuthService(storeWith(null)).isRealmAllowed('realm-2')).resolves.toBe(true);
   });
 });

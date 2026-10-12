@@ -10,6 +10,7 @@ import { qboAccountService } from './services/account.service';
 import { qboCreditMemoService } from './services/creditmemo.service';
 import { logger } from '../../utils/logger';
 import { timingSafeEqual } from 'node:crypto';
+import { requireAuth } from '../auth/auth.middleware';
 
 const router = Router();
 
@@ -50,19 +51,17 @@ const requireDisconnectAuthorization = (req: Request, res: Response, next: NextF
   next();
 };
 
-// 1. Generate Auth URL and redirect user to Intuit
-router.get('/authorize', (_req, res) => {
-  const authUrl = qboAuthService.getAuthorizationUrl();
-  logger.info('[QuickBooks] Redirecting to Intuit for Authorization');
-  res.redirect(authUrl);
-});
+// There is deliberately no unauthenticated "start OAuth" route here: a flow
+// can only begin from POST /api/integrations/quickbooks/connect, which needs a
+// signed-in session (integrations.routes.ts). An open GET /authorize let anyone
+// mint a valid OAuth state and connect a QuickBooks company of their own.
 
 // Flows started from the web app return to its Integrations page instead of receiving JSON.
 const redirectToApp = (res: Response, result: 'connected' | 'denied' | 'failed'): void => {
   res.redirect(303, `${env.APP_BASE_URL}/integrations?quickbooks=${result}`);
 };
 
-// 2. Handle Intuit Callback, exchange token, and verify connection
+// Handle Intuit Callback, exchange token, and verify connection
 router.get('/callback', async (req, res, next) => {
   let returnToApp = false;
   try {
@@ -88,6 +87,13 @@ router.get('/callback', async (req, res, next) => {
     if (!code || !realmId) {
       if (returnToApp) { redirectToApp(res, 'failed'); return; }
       res.status(400).json({ status: 'error', message: 'Missing code or realmId in callback query.' });
+      return;
+    }
+
+    if (!(await qboAuthService.isRealmAllowed(realmId))) {
+      logger.warn('[QuickBooks] OAuth callback rejected: realmId is not the configured/connected company');
+      if (returnToApp) { redirectToApp(res, 'failed'); return; }
+      res.status(400).json({ status: 'error', message: 'This QuickBooks company is not allowed for this deployment.' });
       return;
     }
 
@@ -133,8 +139,10 @@ router.post('/disconnect', requireDisconnectAuthorization, async (_req, res, nex
   }
 });
 
-// Diagnostic/data routes are not exposed when NODE_ENV=production.
+// Diagnostic/data routes are not exposed when NODE_ENV=production, and even in
+// development they need a signed-in session - they return live QuickBooks data.
 router.use(devOnly);
+router.use(requireAuth);
 
 // Data Services (Diagnostic)
 router.get('/companyinfo', async (_req, res, next) => {

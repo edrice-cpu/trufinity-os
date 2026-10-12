@@ -148,6 +148,18 @@ export class QboAuthService {
     return `${env.QBO_AUTH_URL}?client_id=${env.QBO_CLIENT_ID}&response_type=code&scope=${scope}&redirect_uri=${redirectUri}&state=${state}`;
   }
 
+  /**
+   * Only one QuickBooks company may ever feed the warehouse. With QBO_REALM_ID
+   * set, only that company is accepted; otherwise only the company already
+   * connected (any company only when nothing is connected yet). Stops an OAuth
+   * flow from silently switching ingestion to a different company's books.
+   */
+  public async isRealmAllowed(realmId: string): Promise<boolean> {
+    if (env.QBO_REALM_ID) return realmId === env.QBO_REALM_ID;
+    const existing = await this.tokenStore.load();
+    return !existing || existing.realmId === realmId;
+  }
+
   /** Returns the pending state (single use) or null when it is unknown or expired. */
   public consumeAuthorizationState(state: string): QboAuthorizationState | null {
     const pending = this.pendingStates.get(state);

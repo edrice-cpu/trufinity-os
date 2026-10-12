@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { env } from '../../config/env';
+import { requireAuth } from '../auth/auth.middleware';
 
 import { customerService } from './services/customer.service';
 import { locationService } from './services/location.service';
@@ -23,6 +24,9 @@ const devOnly = (_req: Request, res: Response, next: NextFunction) => {
 };
 
 router.use(devOnly);
+// Even in development these hit live third-party APIs / trigger syncs and
+// LLM runs, so they also need a signed-in session (401 otherwise).
+router.use(requireAuth);
 
 // Business Units are a small settings list (department names, e.g. "Company",
 // "Service", "New Construction") used to resolve the dashboard Department
