@@ -1,13 +1,15 @@
 import { Router } from 'express';
+import { createRequireAuth } from '../auth/auth.middleware';
+import { authService as defaultAuthService, type AuthService } from '../auth/auth.service';
 import { deliverService } from './deliver.service';
 import { parseDateRangeFilter } from '../../utils/dashboard-filters';
 
-const router = Router();
+const routes = Router();
 
 // Date filter (default month-to-date, on when the alert was detected):
 // ?from=2026-09-01&to=2026-09-30. No Department filter - Lace's data has no
 // department/business-unit dimension.
-router.get('/alerts', async (req, res, next) => {
+routes.get('/alerts', async (req, res, next) => {
   try {
     const filters = {
       ...(typeof req.query.ruleCode === 'string' ? { ruleCode: req.query.ruleCode } : {}),
@@ -25,7 +27,7 @@ router.get('/alerts', async (req, res, next) => {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-router.get('/alerts/:id', async (req, res, next) => {
+routes.get('/alerts/:id', async (req, res, next) => {
   try {
     // A non-UUID id can never match a row; without this Postgres rejects the
     // query ("invalid input syntax for type uuid") and the client gets a 500
@@ -45,4 +47,14 @@ router.get('/alerts/:id', async (req, res, next) => {
   }
 });
 
-export const deliverRouter = router;
+// Detected alerts carry financial and per-person figures, so every route
+// needs a signed-in session (SPEC-BI-001 Section 11). 401
+// { status: 'error', message } otherwise, from createRequireAuth.
+export const createDeliverRouter = (authService: AuthService = defaultAuthService): Router => {
+  const router = Router();
+  router.use(createRequireAuth(authService));
+  router.use(routes);
+  return router;
+};
+
+export const deliverRouter = createDeliverRouter();

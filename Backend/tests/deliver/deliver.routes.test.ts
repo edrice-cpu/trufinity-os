@@ -1,7 +1,21 @@
 import { describe, expect, it, beforeEach, afterAll } from '@jest/globals';
+import express from 'express';
 import request from 'supertest';
-import app from '../../src/app';
 import { db } from '../../src/database';
+import { createDeliverRouter } from '../../src/modules/deliver/deliver.routes';
+import type { AuthService } from '../../src/modules/auth/auth.service';
+import { errorHandler } from '../../src/middleware/error.middleware';
+
+const VALID_TOKEN = 'valid-session-token-123';
+const fakeAuthService = {
+  authenticate: async (token: string) =>
+    token === VALID_TOKEN ? { sessionId: 's1', user: { id: 'u1', email: 'owner@trufinity.ca', fullName: null } } : null,
+} as unknown as AuthService;
+const AUTH_HEADER = `Bearer ${VALID_TOKEN}`;
+
+const app = express();
+app.use('/api/brief', createDeliverRouter(fakeAuthService));
+app.use(errorHandler);
 
 // Locks the /api/brief contract documented in frontend/FRONTEND_BUILD_GUIDE.md
 // (section 4.7/4.8): the project-wide { status, data } envelope, snake_case
@@ -44,6 +58,20 @@ interface AlertBody {
   [key: string]: unknown;
 }
 
+describe('/api/brief auth', () => {
+  it.each(['/api/brief/alerts', '/api/brief/alerts/00000000-0000-0000-0000-000000000000'])(
+    'returns 401 { status: "error", message } for %s without a valid Bearer session',
+    async (path) => {
+      for (const auth of [undefined, 'Bearer not-a-real-session-token']) {
+        const req = request(app).get(path);
+        const response = await (auth ? req.set('Authorization', auth) : req);
+        expect(response.status).toBe(401);
+        expect(response.body).toEqual({ status: 'error', message: 'Authentication required.' });
+      }
+    },
+  );
+});
+
 describe('GET /api/brief/alerts', () => {
   beforeEach(async () => {
     await db('detected_alerts').where('period_start', '>=', YEAR_START).andWhere('period_start', '<', YEAR_END).delete();
@@ -53,7 +81,7 @@ describe('GET /api/brief/alerts', () => {
     const [row] = await insertAlert({ dimension: 'Shape' });
     const id = typeof row === 'object' ? (row as { id: string }).id : String(row);
 
-    const response = await request(app).get('/api/brief/alerts');
+    const response = await request(app).get('/api/brief/alerts').set('Authorization', AUTH_HEADER);
 
     expect(response.status).toBe(200);
     expect((response.body as { status: string }).status).toBe('success');
@@ -80,7 +108,7 @@ describe('GET /api/brief/alerts', () => {
 
     // GET /api/brief/alerts now defaults to month-to-date; these fixtures use
     // the 2094 sentinel year, so an explicit range is needed to see them.
-    const response = await request(app).get('/api/brief/alerts').query({ from: '2094-01-01', to: '2095-01-01' });
+    const response = await request(app).get('/api/brief/alerts').set('Authorization', AUTH_HEADER).query({ from: '2094-01-01', to: '2095-01-01' });
 
     const ids = ((response.body as { data: AlertBody[] }).data).map((a) => a.id);
     expect(ids.indexOf(newerId)).toBeGreaterThanOrEqual(0);
@@ -91,7 +119,7 @@ describe('GET /api/brief/alerts', () => {
     await insertAlert({ rule_code: 'D-06', dimension: 'ObjectionCategory' });
     await insertAlert({ rule_code: 'D-01', dimension: 'TENANT_TOTAL' });
 
-    const response = await request(app).get('/api/brief/alerts').query({ ruleCode: 'D-06' });
+    const response = await request(app).get('/api/brief/alerts').set('Authorization', AUTH_HEADER).query({ ruleCode: 'D-06' });
 
     const body = (response.body as { data: AlertBody[] }).data;
     expect(body.length).toBeGreaterThan(0);
@@ -109,7 +137,7 @@ describe('GET /api/brief/alerts/:id', () => {
     const [row] = await insertAlert({ dimension: 'Solo' });
     const id = typeof row === 'object' ? (row as { id: string }).id : String(row);
 
-    const response = await request(app).get(`/api/brief/alerts/${id}`);
+    const response = await request(app).get(`/api/brief/alerts/${id}`).set('Authorization', AUTH_HEADER);
 
     expect(response.status).toBe(200);
     const body = response.body as { status: string; data: AlertBody };
@@ -120,14 +148,14 @@ describe('GET /api/brief/alerts/:id', () => {
   });
 
   it('returns 404 { status: "error", message } for a well-formed id that does not exist', async () => {
-    const response = await request(app).get('/api/brief/alerts/00000000-0000-0000-0000-000000000000');
+    const response = await request(app).get('/api/brief/alerts/00000000-0000-0000-0000-000000000000').set('Authorization', AUTH_HEADER);
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ status: 'error', message: 'Alert not found' });
   });
 
   it('returns the same 404 (not a 500) for a malformed id', async () => {
-    const response = await request(app).get('/api/brief/alerts/not-a-uuid');
+    const response = await request(app).get('/api/brief/alerts/not-a-uuid').set('Authorization', AUTH_HEADER);
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ status: 'error', message: 'Alert not found' });
