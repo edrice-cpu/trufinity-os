@@ -2,7 +2,7 @@
 
 > **Purpose of this file**: Hand this file to Claude (or a developer) on the frontend project. It explains what the product is (per `SPEC-BI-001`), what is already built in the UI, exactly which backend APIs exist today (with real request/response shapes), the frontend conventions to follow, and which parts of the UI are still placeholders.
 >
-> **Last synced with the code: 2026-10-08.** Section 8 explains how to keep it current.
+> **Last synced with the code: 2026-10-13.** Section 8 explains how to keep it current.
 
 ---
 
@@ -102,6 +102,8 @@ Fixed section order per spec Section 7 (do not reorder): Data Freshness → Scor
 ## 4. API reference (what exists today)
 
 **Envelope**: every endpoint below returns `{ "status": "success", "data": ... }`, or `{ "status": "error", "message": "..." }` with a non-2xx status. Exceptions: paginated lists (4.9) spread pagination fields at the top level, and auth endpoints (4.12) use `"status": "ok"`.
+
+**Auth**: every endpoint in this section requires the signed-in session (`Authorization: Bearer <token>`); without it the backend returns `401 { "status": "error", "message": "Authentication required." }`. `apiGet` / `apiGetPage` attach the token from the session cookie automatically (server-only), so fetch modules don't pass it.
 
 **Money** fields are **decimal strings** (`"12345.67"`) — format with `formatMoney`, never `parseFloat` (6.5). Counts are integers. Timestamps are ISO-8601 UTC.
 
@@ -316,7 +318,7 @@ WorkItem = { id, workType, workflowStatus, slaState, mailboxAddress, providerMes
 
 ### 6.1 Folder map
 ```
-src/lib/api/client.ts         apiGet (envelope), apiGetPage (paginated), ApiError, BACKEND_API_URL
+src/lib/api/client.ts         server-only; apiGet (envelope), apiGetPage (paginated) — attach the session token; ApiError, isUnauthorized
 src/lib/api/reporting.ts      QuickBooks reporting types + fetchers
 src/lib/api/servicetitan.ts   ServiceTitan reporting types + fetchers
 src/lib/api/alerts.ts         DetectedAlert type, listAlerts, getAlert (404 → null)
@@ -339,6 +341,8 @@ src/components/ui/            Card, StatCard, States (Empty/Error/Pending/Skelet
 - Fetch in async Server Components with `cache: "no-store"`; wrap each section in `<Suspense>` with a skeleton, and key the Suspense on the active filters so a filter change shows the loading state.
 - Use `React.cache` for combined calls shared by several components in one request (e.g. `getServiceTitanSummary`).
 - Every section handles its own loading / empty / error state, so one failing endpoint never blanks the page (`Promise.allSettled` where one card has several endpoints).
+- **Expired sessions**: the `(dashboard)` layout already redirects to `/login` when `/api/auth/me` fails. A page that fetches directly checks `isUnauthorized(error)` and calls `redirect("/login?next=…")` **after** its try/catch — never inside it, and never in `client.ts` (Next's `redirect` throws, so a catch would swallow it). See `alerts/[id]` and `field-operations/{jobs,invoices}`.
+- The session token never reaches the browser: `client.ts` and `lib/auth/*` are `server-only`, and no `"use client"` file may import a fetch module (type-only imports are fine).
 
 ### 6.3 Section ready flags
 `src/lib/sections.ts` lists every section with `true` (live) or `false` (shows `<PendingState />`). Turning a placeholder live = wire the fetch + flip one flag. Currently live: `financialOverview`, `dataQuality`, `fieldOperations`, `demandAlerts`, `briefHeader`, `escalations`.
@@ -375,7 +379,11 @@ Filters live in search params so they're shareable and server-rendered:
 ### 6.7 Confidential data and roles
 - Technician sales (`/technicians/summary`, and `technicians` inside ST `/summary`) are confidential. `canViewConfidential()` is checked **before** fetching, and everything is server-rendered, so restricted viewers never receive the data.
 - The backend has no user roles yet, so `getViewerRole()` returns `"staff"` for everyone and the card is hidden. When roles ship, wire `getViewerRole()` to `/api/auth/me`.
-- ⚠️ This frontend gate is not security on its own. The reporting and alerts endpoints currently have **no backend auth** (only `/api/auth/me` and `/api/integrations/*` require a token). Confidential and financial data must be protected on the backend.
+- **Client-component props are sent to the browser** (RSC payload). Pass only the fields the component needs — e.g. `WorkItemActions` takes `id` + `workflowStatus`, never the whole `WorkItem`. Server actions return only `{ ok, message }`; `router.refresh()` re-reads data on the server.
+- Server actions are public endpoints: validate every argument (work-item ids must be UUIDs before they go into a backend path) and call `redirect()` only outside `try/catch`.
+- Links built from backend data are validated before rendering (the Gmail deep link must be `https://mail.google.com/…`). Post-login `next` goes through `safeRedirectPath` (same-origin path, no control characters or backslashes).
+- Security headers are set for every route in `next.config.ts`: CSP (`frame-ancestors 'none'`, `object-src 'none'`, `form-action 'self'`, self-hosted assets only), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin`, `Permissions-Policy`, HSTS outside dev; `X-Powered-By` is off. Adding an external script, font or image host means adding it to the CSP.
+- ⚠️ This frontend gate is not security on its own. Every reporting and alerts endpoint now requires a signed-in session, but the backend has **no per-role restrictions yet**: any signed-in user can call `/technicians/summary` or the QuickBooks financials. Role enforcement (spec 8.5) must land on the backend.
 
 ---
 

@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/Icon";
 import { ErrorState } from "@/components/ui/States";
 import { MetricTile } from "@/components/sections/MetricTile";
 import { RuleBadge, alertSummary } from "@/components/alerts/AlertRow";
 import { getAlert, type DetectedAlert } from "@/lib/api/alerts";
+import { isUnauthorized } from "@/lib/api/client";
 import { formatDate, formatDateTime, humanizeKey } from "@/lib/format";
 import { formatDimension, formatMetric, getRuleMeta } from "@/lib/rules";
 
@@ -42,12 +43,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export default async function AlertDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  let alert: DetectedAlert | null;
+  let alert: DetectedAlert | null = null;
+  let failure: unknown;
   try {
     alert = await getAlert(id);
-  } catch {
-    return <ErrorState title="Couldn't load this alert" />;
+  } catch (error) {
+    failure = error;
   }
+  // Outside the try/catch so Next's redirect isn't swallowed.
+  if (isUnauthorized(failure)) redirect(`/login?next=${encodeURIComponent(`/alerts/${id}`)}`);
+  if (failure) return <ErrorState title="Couldn't load this alert" />;
   if (!alert) notFound();
 
   const meta = getRuleMeta(alert.rule_code);

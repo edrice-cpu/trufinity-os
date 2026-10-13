@@ -18,6 +18,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/** The deep link comes from the backend; only ever render it as a link if it really points at Gmail over HTTPS. */
+function isGmailUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "mail.google.com";
+  } catch {
+    return false;
+  }
+}
+
 export default async function WorkItemDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const token = await getSessionToken();
@@ -69,7 +79,7 @@ export default async function WorkItemDetailPage({ params }: { params: Promise<{
           </div>
           {canAct && (
             <div className="flex shrink-0 gap-2 self-start">
-              <WorkItemActions item={item} />
+              <WorkItemActions id={item.id} workflowStatus={item.workflowStatus} />
             </div>
           )}
         </div>
@@ -85,21 +95,23 @@ export default async function WorkItemDetailPage({ params }: { params: Promise<{
         )}
         {item.reason && <p className="mt-3 text-sm leading-relaxed text-foreground/80">{item.reason}</p>}
 
-        <div className="mt-4">
-          <a
-            href={item.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground/70 hover:bg-surface-muted transition"
-          >
-            <Icon name="external-link" className="h-3.5 w-3.5" />
-            Open original email in Gmail
-            <span className="sr-only">(opens in a new tab)</span>
-          </a>
-          <p className="mt-1.5 text-xs text-foreground/40">
-            Opens in the first signed-in Google account — sign in as {item.mailboxAddress} if the message isn&apos;t found.
-          </p>
-        </div>
+        {isGmailUrl(item.sourceUrl) && (
+          <div className="mt-4">
+            <a
+              href={item.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground/70 hover:bg-surface-muted transition"
+            >
+              <Icon name="external-link" className="h-3.5 w-3.5" />
+              Open original email in Gmail
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
+            <p className="mt-1.5 text-xs text-foreground/40">
+              Opens in the first signed-in Google account — sign in as {item.mailboxAddress} if the message isn&apos;t found.
+            </p>
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

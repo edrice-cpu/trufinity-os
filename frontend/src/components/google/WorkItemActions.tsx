@@ -5,14 +5,25 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/States";
 import { acknowledgeWorkItemAction, dismissWorkItemAction, resolveWorkItemAction } from "@/app/(dashboard)/escalations/actions";
-import type { WorkItem } from "@/lib/api/google";
+import type { WorkItemWorkflowStatus } from "@/lib/api/google";
 
 const MAX_NOTE = 2000;
 
-/** `compact` = icon-only buttons (label kept as tooltip + accessible name) for dense tables. */
-export function WorkItemActions({ item, compact = false }: { item: WorkItem; compact?: boolean }) {
-  const canAcknowledge = item.workflowStatus === "OPEN";
-  const canClose = item.workflowStatus === "OPEN" || item.workflowStatus === "ACKNOWLEDGED";
+/**
+ * `compact` = icon-only buttons (label kept as tooltip + accessible name) for dense tables.
+ * Takes only the id and status: client-component props are serialized to the browser, so never pass the whole WorkItem.
+ */
+export function WorkItemActions({
+  id,
+  workflowStatus,
+  compact = false,
+}: {
+  id: string;
+  workflowStatus: WorkItemWorkflowStatus;
+  compact?: boolean;
+}) {
+  const canAcknowledge = workflowStatus === "OPEN";
+  const canClose = workflowStatus === "OPEN" || workflowStatus === "ACKNOWLEDGED";
 
   if (!canAcknowledge && !canClose) return null;
 
@@ -20,7 +31,7 @@ export function WorkItemActions({ item, compact = false }: { item: WorkItem; com
     <div className="flex items-center gap-1">
       {canAcknowledge && (
         <ActionButton
-          action={() => acknowledgeWorkItemAction(item.id)}
+          action={() => acknowledgeWorkItemAction(id)}
           icon="check"
           label="Ack"
           title="Acknowledge (claim) this item"
@@ -29,10 +40,10 @@ export function WorkItemActions({ item, compact = false }: { item: WorkItem; com
           compact={compact}
         />
       )}
-      {canClose && <ResolveButton id={item.id} compact={compact} />}
+      {canClose && <ResolveButton id={id} compact={compact} />}
       {canClose && (
         <ActionButton
-          action={() => dismissWorkItemAction(item.id)}
+          action={() => dismissWorkItemAction(id)}
           icon="x"
           label="Not a problem"
           title="Not a problem — logged and used to tune the classifier"

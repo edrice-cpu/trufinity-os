@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -14,7 +15,7 @@ import {
   type StJobListItem,
 } from "@/lib/api/servicetitan";
 import { ALL_TIME_RANGE, firstParam, readPage, type SearchParams } from "@/lib/filters";
-import type { Paginated } from "@/lib/api/client";
+import { isUnauthorized, type Paginated } from "@/lib/api/client";
 import { formatDate, formatEnumLabel, formatMoney } from "@/lib/format";
 
 const PAGE_SIZE = Math.min(25, ST_MAX_PAGE_SIZE);
@@ -67,12 +68,16 @@ async function StatusChips({ status }: { status?: string }) {
 }
 
 async function JobsResults({ status, page }: { status?: string; page: number }) {
-  let result: Paginated<StJobListItem>;
+  let result: Paginated<StJobListItem> | undefined;
+  let failure: unknown;
   try {
     result = await listStJobs({ page, pageSize: PAGE_SIZE, status });
-  } catch {
-    return <ErrorState title="Couldn't load jobs" />;
+  } catch (error) {
+    failure = error;
   }
+  // Outside the try/catch so Next's redirect isn't swallowed.
+  if (isUnauthorized(failure)) redirect(`/login?next=${encodeURIComponent(BASE_PATH)}`);
+  if (!result) return <ErrorState title="Couldn't load jobs" />;
   const lastPage = lastPageOf(result.totalCount, result.pageSize);
   if (result.data.length === 0 && result.totalCount > 0 && page > lastPage) {
     return <PageOutOfRange basePath={BASE_PATH} query={{ status }} lastPage={lastPage} />;

@@ -27,11 +27,14 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
-/** Only same-origin relative paths are allowed as post-login destinations (prevents open redirects). */
+/**
+ * Only same-origin relative paths are allowed as post-login destinations (prevents open redirects).
+ * Browsers strip tabs/newlines and treat a backslash as "/", so "/<TAB>/evil.com" or "/\evil.com" would become
+ * "//evil.com" — reject control characters and backslashes anywhere, then the "//" prefix.
+ */
 export function safeRedirectPath(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) {
-    return "/";
-  }
+  if (typeof value !== "string" || !value.startsWith("/") || /[\u0000-\u001f\u007f\\]/.test(value)) return "/";
+  if (value.startsWith("//")) return "/";
   return value;
 }
 

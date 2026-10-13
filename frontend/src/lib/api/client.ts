@@ -1,3 +1,6 @@
+import "server-only";
+import { getSessionToken } from "@/lib/auth/session";
+
 const BASE_URL = process.env.BACKEND_API_URL ?? "http://localhost:3000";
 
 export interface Paginated<T> {
@@ -14,6 +17,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * True when the backend rejected the session (401). Callers redirect to /login *outside* their try/catch —
+ * client.ts never redirects itself, because sections catch errors and would swallow Next's redirect.
+ */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
 type Query = Record<string, string | number | undefined>;
 
 function buildUrl(path: string, query?: Query): string {
@@ -26,9 +37,14 @@ function buildUrl(path: string, query?: Query): string {
 }
 
 async function request<T>(path: string, query?: Query): Promise<T & { status: string; message?: string }> {
+  // Reporting and alerts endpoints require the signed-in session. The token stays on the server.
+  const token = await getSessionToken();
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let res: Response;
   try {
-    res = await fetch(buildUrl(path, query), { cache: "no-store" });
+    res = await fetch(buildUrl(path, query), { headers, cache: "no-store" });
   } catch {
     throw new ApiError(`Backend unreachable at ${BASE_URL}`);
   }

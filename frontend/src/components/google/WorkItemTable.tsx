@@ -77,7 +77,7 @@ export function WorkItemTable({
               <td className="px-4 py-3.5 text-xs text-foreground/55">{formatDateTime(item.classifiedAt)}</td>
               <td className="py-3.5 pl-4 pr-5">
                 <div className="flex justify-end">
-                  <WorkItemActions item={item} compact />
+                  <WorkItemActions id={item.id} workflowStatus={item.workflowStatus} compact />
                 </div>
               </td>
             </tr>
@@ -99,7 +99,7 @@ export function WorkItemTable({
               <ClassificationCell item={item} />
               <StatusCell item={item} />
             </div>
-            <WorkItemActions item={item} />
+            <WorkItemActions id={item.id} workflowStatus={item.workflowStatus} />
           </li>
         ))}
       </ul>

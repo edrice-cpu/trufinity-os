@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -12,7 +13,7 @@ import {
   type StInvoiceClassification,
   type StInvoiceListItem,
 } from "@/lib/api/servicetitan";
-import type { Paginated } from "@/lib/api/client";
+import { isUnauthorized, type Paginated } from "@/lib/api/client";
 import { formatDate, formatEnumLabel, formatMoney } from "@/lib/format";
 import { firstParam, readPage, type SearchParams } from "@/lib/filters";
 
@@ -60,12 +61,16 @@ export default async function StInvoicesPage({ searchParams }: { searchParams: P
 }
 
 async function InvoicesResults({ classification, page }: { classification?: StInvoiceClassification; page: number }) {
-  let result: Paginated<StInvoiceListItem>;
+  let result: Paginated<StInvoiceListItem> | undefined;
+  let failure: unknown;
   try {
     result = await listStInvoices({ page, pageSize: PAGE_SIZE, classification });
-  } catch {
-    return <ErrorState title="Couldn't load invoices" />;
+  } catch (error) {
+    failure = error;
   }
+  // Outside the try/catch so Next's redirect isn't swallowed.
+  if (isUnauthorized(failure)) redirect(`/login?next=${encodeURIComponent(BASE_PATH)}`);
+  if (!result) return <ErrorState title="Couldn't load invoices" />;
   const lastPage = lastPageOf(result.totalCount, result.pageSize);
   if (result.data.length === 0 && result.totalCount > 0 && page > lastPage) {
     return <PageOutOfRange basePath={BASE_PATH} query={{ classification }} lastPage={lastPage} />;
