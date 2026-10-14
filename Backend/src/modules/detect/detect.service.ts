@@ -14,6 +14,7 @@ import { evaluateCallbackWarrantySpike } from './rules/o02-callback-warranty-spi
 import { evaluateTechnicianOutlier } from './rules/o05-technician-outlier.rule';
 import { evaluateJobHeldOpen } from './rules/o06-job-held-open.rule';
 import { evaluateRepeatVisit } from './rules/o07-repeat-visit.rule';
+import { evaluateAbandonedCallThreshold } from './rules/d02-abandoned-call-threshold.rule';
 
 async function persistFinding(database: Knex, finding: DetectedAlertFinding): Promise<void> {
   await database('detected_alerts')
@@ -41,8 +42,11 @@ export class DetectService {
   public async run(now: Date = new Date()): Promise<{ findings: DetectedAlertFinding[] }> {
     const window = trailingWeekWindow(now);
 
-    const [d01, d06, f04, f04c, f03, f04d, f05, o02, o05, o06, o07] = await Promise.all([
+    const [d01, d02, d06, f04, f04c, f03, f04d, f05, o02, o05, o06, o07] = await Promise.all([
       evaluateBookingRateDecline(window, this.database),
+      // D-02: disabled by default (kill-switch + zero threshold). Returns [] when off.
+      // Enable only after Daniel confirms DETECT_D02_DAILY_THRESHOLD and DETECT_D02_TIMEZONE.
+      evaluateAbandonedCallThreshold(window, this.database),
       evaluateObjectionCategorySpikes(window, this.database),
       evaluateArAgingSpike(window, this.database),
       evaluateArConcentration(window, this.database),
@@ -55,7 +59,7 @@ export class DetectService {
       evaluateRepeatVisit(window, this.database),
     ]);
 
-    const findings = [...d01, ...d06, ...f04, ...f04c, ...f03, ...f04d, ...f05, ...o02, ...o05, ...o06, ...o07];
+    const findings = [...d01, ...d02, ...d06, ...f04, ...f04c, ...f03, ...f04d, ...f05, ...o02, ...o05, ...o06, ...o07];
     for (const finding of findings) {
       await persistFinding(this.database, finding);
     }

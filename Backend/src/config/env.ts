@@ -110,8 +110,64 @@ const envSchema = z.object({
   // settings list, so they sync far less often (weekly, Sunday 01:30).
   SERVICETITAN_SYNC_CRON: z.string().default('0 1 * * *'),
   SERVICETITAN_BUSINESS_UNIT_SYNC_CRON: z.string().default('30 1 * * 0'),
+  // Telecom calls incremental sync: every 4 hours keeps call data fresh for
+  // analysis while each run fetches only the delta since the last checkpoint.
+  // The historical run must complete before this is enabled (see activation plan).
+  SERVICETITAN_TELECOM_CALLS_SYNC_CRON: z.string().default('0 */4 * * *'),
+  // Kill-switch for the Telecom incremental scheduler. Defaults to false so the
+  // cron task is NOT registered at startup — it must be explicitly enabled in the
+  // server's environment after the historical ingestion has been verified complete.
+  // Activation sequence: set to true in .env, then restart the process.
+  SERVICETITAN_TELECOM_CALLS_SYNC_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   SERVICETITAN_STUCK_RUN_REAPER_CRON: z.string().default('*/30 * * * *'),
   SERVICETITAN_STUCK_RUN_THRESHOLD_MINUTES: z.coerce.number().default(60),
+  // Telecom calls initial sync window. Used ONLY on the very first run when no
+  // saved continuation token exists. Default is 90 days — enough for initial
+  // validation without triggering a full historical export of 86k+ records.
+  // Must be a valid ISO 8601 date string (YYYY-MM-DD or full datetime).
+  // Once a continuation token is saved this value is never consulted again.
+  // Production deployments MUST explicitly set this to their intended historical
+  // start date before initial synchronization. The default (2026-07-10) is safe
+  // for staging validation only and covers approximately 90 days.
+  SERVICETITAN_TELECOM_CALLS_HISTORICAL_FROM: z
+    .string()
+    // Full anchor: reject partial matches and unexpected suffixes
+    .regex(
+      /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/,
+      'SERVICETITAN_TELECOM_CALLS_HISTORICAL_FROM must be YYYY-MM-DD with valid month (01-12) and day (01-31)',
+    )
+    // Reject impossible calendar dates (e.g. 2026-02-30).
+    // new Date('2026-02-30') rolls over to March 2 rather than returning NaN, so
+    // a plain isNaN check is insufficient. The round-trip check
+    // (re-serialise and compare) catches overflow dates in any timezone because
+    // Date always normalises to UTC midnight for YYYY-MM-DD strings.
+    .refine(
+      (v) => new Date(v).toISOString().slice(0, 10) === v,
+      'SERVICETITAN_TELECOM_CALLS_HISTORICAL_FROM is not a valid calendar date',
+    )
+    // Reject future dates — a future start date would skip current data entirely
+    .refine(
+      (v) => new Date(v) <= new Date(),
+      'SERVICETITAN_TELECOM_CALLS_HISTORICAL_FROM must not be a future date',
+    )
+    .default('2026-07-10'),
+
+  // V3 Telecom enrichment — separate scheduler from V2 Export.
+  // Cron: every 6 hours (offset from V2 to avoid simultaneous API load).
+  // Kill-switch: defaults to false — must be explicitly enabled after the V3
+  // historical backfill has completed and been verified.
+  SERVICETITAN_TELECOM_V3_SYNC_CRON: z.string().default('0 2,8,14,20 * * *'),
+  SERVICETITAN_TELECOM_V3_SYNC_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Overlap window for incremental modifiedOnOrAfter queries.
+  // The saved checkpoint is shifted back by this many minutes on each incremental
+  // run to catch records with equal modification timestamps or delayed API visibility
+  // at the boundary of the previous run. Upserts are idempotent so re-fetching
+  // these records is safe. 5 minutes is a conservative default.
+  SERVICETITAN_TELECOM_V3_OVERLAP_MINUTES: z.coerce.number().int().min(0).max(60).default(5),
+  // Coverage gap warning threshold: log a warning when more than this many V2 calls
+  // within the V3 historical window are missing a V3 enrichment record.
+  // 0 disables the threshold check (all gaps are still logged at info level).
+  SERVICETITAN_TELECOM_V3_COVERAGE_GAP_WARN_THRESHOLD: z.coerce.number().int().min(0).default(10),
 
   // Detect layer thresholds (SPEC-BI-001 exact values not confirmed yet -
   // these are reasonable defaults, deliberately env-tunable so they can be
@@ -176,6 +232,45 @@ const envSchema = z.object({
   // (address) as another job completed within this many days before it - on
   // the same equipment when both jobs carry equipment ids.
   DETECT_O07_REPEAT_WINDOW_DAYS: z.coerce.number().default(30),
+
+  // D-02: Daily Abandoned Call Threshold Detection (ServiceTitan Telecom)
+  // Fires a RED alert for each local calendar day on which the count of
+  // ServiceTitan-classified Inbound Abandoned calls strictly exceeds the
+  // configured daily threshold (count > threshold, not >=).
+  //
+  // ⚠ PRODUCT CONFIRMATION REQUIRED before activation:
+  //   - DETECT_D02_DAILY_THRESHOLD: 0 disables alert generation even when enabled;
+  //     must be confirmed with Daniel. No default invented.
+  //   - DETECT_D02_TIMEZONE: must match the business's operating timezone.
+  //
+  // Scope: covers only ST-classified "Abandoned" calls — callers who entered the
+  // phone system but disconnected before being answered. Ring-level missed calls
+  // that never reached ServiceTitan require Dialpad integration and are NOT covered.
+  //
+  // Kill-switch defaults to false. Enable only after confirming threshold with Daniel.
+  DETECT_D02_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // ⚠ Set to 0 (disabled) until Daniel confirms the daily threshold value.
+  DETECT_D02_DAILY_THRESHOLD: z.coerce.number().int().min(0).default(0),
+  DETECT_D02_TIMEZONE: z.string().default('America/Toronto').refine((tz) => {
+    try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch { return false; }
+  }, 'DETECT_D02_TIMEZONE must be a valid IANA timezone identifier'),
+  // Minimum hours since a day ended before it is evaluated. Guards against a partial
+  // day raising a false alert because the V3 sync has not yet ingested all calls.
+  DETECT_D02_SYNC_BUFFER_HOURS: z.coerce.number().int().min(0).max(48).default(2),
+
+  // D-02a: After-Hours Voicemail & Missing Callback Detection
+  // ⚠ PRODUCT CONFIRMATION REQUIRED: TELECOM_D02A_THRESHOLD_MINUTES default (240 = 4 business hours)
+  // is a provisional placeholder matching R-01. Client must confirm before production activation.
+  // Kill-switch defaults to false — must be explicitly enabled after the migration has been applied
+  // and the V3 enrichment sync has been verified complete for the lookback window.
+  TELECOM_D02A_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  TELECOM_D02A_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(240),
+  TELECOM_D02A_TIMEZONE: z.string().default('America/Toronto').refine((tz) => {
+    try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch { return false; }
+  }, 'TELECOM_D02A_TIMEZONE must be a valid IANA timezone identifier'),
+  TELECOM_D02A_BUSINESS_START_HOUR: z.coerce.number().int().min(0).max(23).default(9),
+  TELECOM_D02A_BUSINESS_END_HOUR: z.coerce.number().int().min(1).max(24).default(17),
+  TELECOM_D02A_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(14),
 
   // R-01: Unanswered Inbound Email Detection (Google Workspace responsiveness rule)
   // ⚠ PRODUCT CONFIRMATION REQUIRED: GOOGLE_R01_THRESHOLD_MINUTES default (240 = 4 business hours)

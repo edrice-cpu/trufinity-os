@@ -14,6 +14,15 @@ import { serviceTitanInvoiceIngestionService } from './ingestion/invoice.ingesti
 import { serviceTitanPaymentIngestionService } from './ingestion/payment.ingestion';
 import { serviceTitanTechnicianIngestionService } from './ingestion/technician.ingestion';
 import { serviceTitanBusinessUnitIngestionService } from './ingestion/business-unit.ingestion';
+import {
+  serviceTitanTelecomCallsIngestionService,
+  TelecomCallsSyncInProgressError,
+} from './ingestion/telecom-calls.ingestion';
+import {
+  serviceTitanTelecomCallsV3IngestionService,
+  V3SyncInProgressError,
+} from './ingestion/telecom-calls-v3.ingestion';
+import { d02aRule } from './services/telecom-voicemail-callback.rule';
 
 interface ServiceTitanScheduledSync {
   entityType: string;
@@ -39,6 +48,68 @@ const SCHEDULED_SYNCS: ServiceTitanScheduledSync[] = [
   { entityType: 'Technician', cronExpression: env.SERVICETITAN_SYNC_CRON, run: () => serviceTitanTechnicianIngestionService.run() },
   { entityType: 'BusinessUnit', cronExpression: env.SERVICETITAN_BUSINESS_UNIT_SYNC_CRON, run: () => serviceTitanBusinessUnitIngestionService.run() },
 ];
+
+// Upper bound for a single incremental Telecom run. The API returns at most
+// 5,000 records per page; an incremental run over 4 hours of call activity is
+// expected to be well under 1,000 records. Exceeding 5,500 is only possible
+// if a bug or manual trigger caused the checkpoint to fall very far behind.
+const TELECOM_INCREMENTAL_MAX_EXPECTED_RECORDS = 5_500;
+
+// How long a Telecom checkpoint may sit unadvanced before it is treated as
+// stale — an indicator that ingestion is silently failing or the scheduler
+// is not firing.
+const TELECOM_CHECKPOINT_STALE_HOURS = 6;
+
+async function logIfTelecomCheckpointStale(): Promise<void> {
+  const row = await db('raw_sync_metadata')
+    .where({ source_system: `ServiceTitan:${env.SERVICETITAN_TENANT_ID}`, entity_type: 'TelecomCall' })
+    .select('last_synced_at')
+    .first() as { last_synced_at: Date | null } | undefined;
+
+  if (!row) {
+    // No checkpoint at all — historical ingestion has never run.
+    logger.warn('[ServiceTitan] TelecomCall checkpoint missing — historical ingestion may not have run yet');
+    return;
+  }
+
+  if (!row.last_synced_at) {
+    logger.warn('[ServiceTitan] TelecomCall checkpoint exists but last_synced_at is null');
+    return;
+  }
+
+  const staleCutoff = new Date(Date.now() - TELECOM_CHECKPOINT_STALE_HOURS * 60 * 60_000);
+  if (row.last_synced_at < staleCutoff) {
+    logger.warn('[ServiceTitan] TelecomCall checkpoint is stale — last successful sync may have failed silently', {
+      lastSyncedAt: row.last_synced_at.toISOString(),
+      staleThresholdHours: TELECOM_CHECKPOINT_STALE_HOURS,
+    });
+  }
+}
+
+async function runScheduledTelecomSync(): Promise<void> {
+  try {
+    const result = await serviceTitanTelecomCallsIngestionService.run();
+    logger.info('[ServiceTitan] Scheduled TelecomCall sync completed', result);
+
+    if (result.recordsProcessed > TELECOM_INCREMENTAL_MAX_EXPECTED_RECORDS) {
+      logger.warn('[ServiceTitan] TelecomCall incremental sync processed unexpectedly high record count', {
+        recordsProcessed: result.recordsProcessed,
+        threshold: TELECOM_INCREMENTAL_MAX_EXPECTED_RECORDS,
+      });
+    }
+  } catch (error) {
+    if (error instanceof TelecomCallsSyncInProgressError) {
+      logger.info('[ServiceTitan] Scheduled TelecomCall sync skipped: already running');
+      return;
+    }
+    logger.error('[ServiceTitan] Scheduled TelecomCall sync failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await logIfRepeatedlyFailing('TelecomCall').catch(() => undefined);
+  }
+
+  await logIfTelecomCheckpointStale().catch(() => undefined);
+}
 
 // Same repeated-failure-streak heuristic as the Lace scheduler - one bad run
 // is noise, three in a row needs an operator's attention.
@@ -107,10 +178,69 @@ export function startServiceTitanScheduler(): ScheduledTask[] {
     return task;
   });
 
+  if (env.SERVICETITAN_TELECOM_CALLS_SYNC_ENABLED) {
+    const telecomTask = cron.schedule(env.SERVICETITAN_TELECOM_CALLS_SYNC_CRON, () => runScheduledTelecomSync());
+    logger.info(`[ServiceTitan] Scheduled TelecomCall incremental sync (cron: ${env.SERVICETITAN_TELECOM_CALLS_SYNC_CRON})`);
+    tasks.push(telecomTask);
+  } else {
+    logger.info('[ServiceTitan] TelecomCall incremental sync is disabled (SERVICETITAN_TELECOM_CALLS_SYNC_ENABLED=false)');
+  }
+
+  if (env.SERVICETITAN_TELECOM_V3_SYNC_ENABLED) {
+    const v3Task = cron.schedule(env.SERVICETITAN_TELECOM_V3_SYNC_CRON, () => runScheduledV3Sync());
+    logger.info(`[ServiceTitan] Scheduled TelecomCallV3 enrichment sync (cron: ${env.SERVICETITAN_TELECOM_V3_SYNC_CRON})`);
+    tasks.push(v3Task);
+  } else {
+    logger.info('[ServiceTitan] TelecomCallV3 enrichment sync is disabled (SERVICETITAN_TELECOM_V3_SYNC_ENABLED=false)');
+  }
+
   const reaperTask = cron.schedule(env.SERVICETITAN_STUCK_RUN_REAPER_CRON, () =>
     reapStuckRuns().catch((error) => logger.error('[ServiceTitan] Stuck-run reaper failed', { error: error instanceof Error ? error.message : String(error) })),
   );
   logger.info(`[ServiceTitan] Scheduled stuck-run reaper (cron: ${env.SERVICETITAN_STUCK_RUN_REAPER_CRON})`);
 
   return [...tasks, reaperTask];
+}
+
+async function runD02aEvaluation(): Promise<void> {
+  if (!env.TELECOM_D02A_ENABLED) return;
+  await d02aRule
+    .evaluate({
+      sourceSystem: `ServiceTitan:${env.SERVICETITAN_TENANT_ID}`,
+      businessCalendar: {
+        timezone: env.TELECOM_D02A_TIMEZONE,
+        startHour: env.TELECOM_D02A_BUSINESS_START_HOUR,
+        endHour: env.TELECOM_D02A_BUSINESS_END_HOUR,
+      },
+      thresholdMinutes: env.TELECOM_D02A_THRESHOLD_MINUTES,
+      lookbackDays: env.TELECOM_D02A_LOOKBACK_DAYS,
+    })
+    .then(() => {
+      logger.info('[ServiceTitan] D-02a voicemail callback evaluation completed');
+    })
+    .catch((err: unknown) => {
+      logger.warn('[ServiceTitan] D-02a voicemail callback evaluation failed — sync unaffected', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+async function runScheduledV3Sync(): Promise<void> {
+  try {
+    const result = await serviceTitanTelecomCallsV3IngestionService.run();
+    logger.info('[ServiceTitan] Scheduled TelecomCallV3 enrichment sync completed', result);
+
+    // D-02a runs non-fatally after V3 enrichment so call data is fresh.
+    // Disabled by default — enable via TELECOM_D02A_ENABLED=true after migration applied.
+    await runD02aEvaluation();
+  } catch (error) {
+    if (error instanceof V3SyncInProgressError) {
+      logger.info('[ServiceTitan] Scheduled TelecomCallV3 enrichment sync skipped: already running');
+      return;
+    }
+    logger.error('[ServiceTitan] Scheduled TelecomCallV3 enrichment sync failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await logIfRepeatedlyFailing('TelecomCallV3').catch(() => undefined);
+  }
 }

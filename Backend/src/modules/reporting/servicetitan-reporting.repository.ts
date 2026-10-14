@@ -1,7 +1,14 @@
 import type { Knex } from 'knex';
 import { db } from '../../database';
+import { env } from '../../config/env';
 import { defaultDateRangeFilter, type DateRangeFilter, type ServiceTitanDepartment } from '../../utils/dashboard-filters';
 import type {
+  AbandonedCallItem,
+  AbandonedCallsAggregate,
+  AbandonedCallsDaySummary,
+  AbandonedCallsHourSummary,
+  AgentMetricsItem,
+  CallRevenueAttribution,
   CountByLabel,
   Paginated,
   StAppointmentsSummary,
@@ -15,7 +22,11 @@ import type {
   StPaymentsSummary,
   StSyncStatusRow,
   StTechnicianSummaryRow,
+  TelecomSyncHealth,
+  VoicemailCallbackAlertItem,
+  VoicemailCallbackAlertStatus,
 } from './servicetitan-reporting.types';
+import { TELECOM_SYNC_STALE_HOURS } from './servicetitan-reporting.types';
 
 interface RawResult<T> { rows: T[] }
 
@@ -41,6 +52,23 @@ const toLabelCounts = (rows: Record<string, unknown>[]): CountByLabel[] =>
 
 // ServiceTitan payload fields are read straight from the raw jsonb - only the latest version of each record.
 const ST_INVOICE_ACTIVE = `COALESCE((payload->>'active')::boolean, true) = true`;
+
+// Computes a human-readable health state for Telecom V2/V3 syncs.
+// Priority: DISABLED > NEVER_SYNCED > FAILED > STALE > HEALTHY > UNKNOWN
+function computeTelecomSyncHealth(
+  schedulerEnabled: boolean,
+  lastRunStatus: string | null,
+  lastSyncedAt: unknown,
+): TelecomSyncHealth {
+  if (!schedulerEnabled) return 'DISABLED';
+  if (lastSyncedAt === null || lastSyncedAt === undefined) return 'NEVER_SYNCED';
+  // lastSyncedAt exists — check if it's parseable
+  const syncDate = lastSyncedAt instanceof Date ? lastSyncedAt : new Date(String(lastSyncedAt));
+  if (isNaN(syncDate.getTime())) return 'UNKNOWN';
+  if (lastRunStatus === 'FAILED') return 'FAILED';
+  const staleMs = TELECOM_SYNC_STALE_HOURS * 3_600_000;
+  return Date.now() - syncDate.getTime() > staleMs ? 'STALE' : 'HEALTHY';
+}
 
 export class KnexServiceTitanReportingRepository {
   public constructor(private readonly database: Knex = db) {}
@@ -276,7 +304,7 @@ export class KnexServiceTitanReportingRepository {
       ['Appointment', 'raw_st_appointments'], ['Lead', 'raw_st_leads'], ['Booking', 'raw_st_bookings'],
       ['Invoice', 'raw_st_invoices'], ['Payment', 'raw_st_payments'], ['Technician', 'raw_st_technicians'],
     ];
-    return Promise.all(entities.map(async ([entityType, table]) => {
+    const regular = await Promise.all(entities.map(async ([entityType, table]) => {
       const [run] = await readRows<Record<string, unknown>>(this.database, `
         SELECT status, started_at, completed_at, records_processed FROM sync_runs
         WHERE source_system = 'ServiceTitan' AND entity_type = ? ORDER BY started_at DESC LIMIT 1
@@ -294,6 +322,80 @@ export class KnexServiceTitanReportingRepository {
         lastRunRecordsProcessed: run ? count(run.records_processed) : null,
         lastSuccessfulSyncAt: toIso(ok?.at),
         latestRawRecordCount: count(raw?.n),
+      };
+    }));
+
+    const telecom = await this.getTelecomSyncRows();
+    return [...regular, ...telecom];
+  }
+
+  // Builds sync status rows for the two Telecom syncs (V2 and V3).
+  // These differ from regular entities in several ways:
+  //   - source_system includes the tenant ID (e.g. 'ServiceTitan:12345')
+  //   - V3 sync_runs uses lowercase status values — normalized to uppercase here
+  //   - lastSuccessfulSyncAt comes from raw_sync_metadata.last_synced_at (checkpoint),
+  //     not from sync_runs.completed_at, because the checkpoint advance is atomic with
+  //     the completion write (see telecom-calls-v3.ingestion.ts:completeRun)
+  //   - syncHealth is computed from scheduler flag + checkpoint age (6h stale threshold)
+  private async getTelecomSyncRows(): Promise<StSyncStatusRow[]> {
+    const tenantSourceSystem = `ServiceTitan:${env.SERVICETITAN_TENANT_ID}`;
+
+    const telecomEntities = [
+      {
+        entityType: 'TelecomCall',
+        schedulerEnabled: env.SERVICETITAN_TELECOM_CALLS_SYNC_ENABLED,
+        rawTable: 'raw_st_calls WHERE is_latest = true',
+      },
+      {
+        entityType: 'TelecomCallV3',
+        schedulerEnabled: env.SERVICETITAN_TELECOM_V3_SYNC_ENABLED,
+        rawTable: 'st_calls_v3_enrichment',
+      },
+    ];
+
+    return Promise.all(telecomEntities.map(async (tc) => {
+      // Last run from sync_runs — V3 uses lowercase statuses; normalize to uppercase.
+      const [run] = await readRows<Record<string, unknown>>(this.database,
+        `SELECT status, started_at, completed_at, records_processed
+         FROM sync_runs
+         WHERE source_system = ? AND entity_type = ?
+         ORDER BY started_at DESC LIMIT 1`,
+        [tenantSourceSystem, tc.entityType],
+      );
+
+      // Checkpoint from raw_sync_metadata (most reliable last-success indicator).
+      const [checkpoint] = await readRows<Record<string, unknown>>(this.database,
+        `SELECT last_synced_at FROM raw_sync_metadata
+         WHERE source_system = ? AND entity_type = ?`,
+        [tenantSourceSystem, tc.entityType],
+      );
+
+      // Raw record count (no is_latest on st_calls_v3_enrichment; V2 filters it).
+      const [rawRow] = await readRows<Record<string, unknown>>(this.database,
+        `SELECT COUNT(*)::int AS n FROM ${tc.rawTable}`,
+      );
+
+      const lastRunStatus = run?.status ? String(run.status).toUpperCase() : null;
+      const checkpointAt = toIso(checkpoint?.last_synced_at);
+
+      const syncHealth = computeTelecomSyncHealth(
+        tc.schedulerEnabled,
+        lastRunStatus,
+        checkpoint?.last_synced_at ?? null,
+      );
+
+      return {
+        entityType: tc.entityType,
+        lastRunStatus,
+        lastRunStartedAt: toIso(run?.started_at),
+        lastRunCompletedAt: toIso(run?.completed_at),
+        lastRunRecordsProcessed: run ? count(run.records_processed) : null,
+        // lastSuccessfulSyncAt = checkpoint advance timestamp (atomic with sync completion)
+        lastSuccessfulSyncAt: checkpointAt,
+        latestRawRecordCount: count(rawRow?.n),
+        schedulerEnabled: tc.schedulerEnabled,
+        checkpointAt,
+        syncHealth,
       };
     }));
   }
@@ -355,6 +457,405 @@ export class KnexServiceTitanReportingRepository {
         customerId: nullableString(r.customer_id), jobId: nullableString(r.job_id), paidOn: nullableString(r.paid_on),
         classification: r.classification as StInvoiceListItem['classification'],
       })),
+    };
+  }
+  // ─── Abandoned Calls ────────────────────────────────────────────────────────
+  //
+  // Source: st_calls_v3_enrichment (V3) joined to raw_st_calls (V2) for customer/job IDs.
+  // Only returns direction='Inbound', call_type='Abandoned'.
+  // Phones/recording URLs are never selected — only structured metadata.
+  //
+  // Date filter is applied to call_received_on (the actual ring timestamp from V3).
+  // Rows with call_received_on IS NULL are excluded — this never occurs in practice
+  // (100% populated) but is a defensive guard.
+  //
+  // Indexes used:
+  //   - idx_st_calls_v3_enrichment_call_type (call_type)
+  //   - idx_st_calls_v3_enrichment_received_on (call_received_on)
+  //   - idx_st_calls_v3_enrichment_call (source_system, source_id) for the join
+  //   - idx_raw_st_calls_latest (source_system, source_id WHERE is_latest) for the join
+  public async listAbandonedCalls(
+    from: Date,
+    to: Date,
+    page: number,
+    pageSize: number,
+    sortDir: 'asc' | 'desc',
+    sourceSystem: string,
+  ): Promise<Paginated<AbandonedCallItem>> {
+    const baseFilter = `
+      v3.source_system = ?
+      AND v3.call_type = 'Abandoned'
+      AND v3.direction = 'Inbound'
+      AND v3.call_received_on IS NOT NULL
+      AND v3.call_received_on >= ?
+      AND v3.call_received_on < ?
+    `;
+    const bindings: Knex.RawBinding[] = [sourceSystem, from.toISOString(), to.toISOString()];
+
+    const [totalRow] = await readRows<Record<string, unknown>>(this.database, `
+      SELECT COUNT(*)::int AS n
+      FROM st_calls_v3_enrichment v3
+      WHERE ${baseFilter}
+    `, bindings);
+
+    const sortSql = sortDir === 'asc' ? 'ASC' : 'DESC';
+    const rows = await readRows<Record<string, unknown>>(this.database, `
+      SELECT
+        v3.source_id          AS call_id,
+        v3.call_received_on   AS received_on,
+        v3.duration           AS duration,
+        v3.agent_id           AS agent_id,
+        v3.agent_name         AS agent_name,
+        r.st_customer_id      AS customer_id,
+        r.st_job_id           AS job_id,
+        v3.v2_linked          AS v2_linked,
+        (v3.v3_payload->'leadCall'->>'voiceMailUrl' IS NOT NULL
+          AND v3.v3_payload->'leadCall'->>'voiceMailUrl' <> '') AS has_voicemail
+      FROM st_calls_v3_enrichment v3
+      LEFT JOIN raw_st_calls r
+        ON r.source_system = v3.source_system
+       AND r.source_id     = v3.source_id
+       AND r.is_latest     = true
+      WHERE ${baseFilter}
+      ORDER BY v3.call_received_on ${sortSql} NULLS LAST, v3.source_id ${sortSql}
+      LIMIT ? OFFSET ?
+    `, [...bindings, pageSize, (page - 1) * pageSize]);
+
+    return {
+      page, pageSize, totalCount: count(totalRow?.n),
+      data: rows.map((r) => ({
+        callId: String(r.call_id),
+        receivedOn: toIso(r.received_on) ?? '',
+        duration: nullableString(r.duration),
+        agentId: nullableString(r.agent_id),
+        agentName: nullableString(r.agent_name),
+        customerId: nullableString(r.customer_id),
+        jobId: nullableString(r.job_id),
+        hasVoicemail: r.has_voicemail === true,
+        v2Linked: r.v2_linked === true,
+      })),
+    };
+  }
+
+  public async getAbandonedCallsAggregate(
+    from: Date,
+    to: Date,
+    sourceSystem: string,
+  ): Promise<AbandonedCallsAggregate> {
+    const bindings: Knex.RawBinding[] = [sourceSystem, from.toISOString(), to.toISOString()];
+    const baseFilter = `
+      source_system = ?
+      AND call_type = 'Abandoned'
+      AND direction = 'Inbound'
+      AND call_received_on IS NOT NULL
+      AND call_received_on >= ?
+      AND call_received_on < ?
+    `;
+
+    const [totals] = await readRows<Record<string, unknown>>(this.database, `
+      SELECT
+        COUNT(*)::int AS total_count,
+        COUNT(*) FILTER (WHERE v3_payload->'leadCall'->>'voiceMailUrl' IS NOT NULL
+          AND v3_payload->'leadCall'->>'voiceMailUrl' <> '')::int AS with_voicemail,
+        COUNT(*) FILTER (WHERE source_id IN (
+          SELECT source_id FROM raw_st_calls
+          WHERE is_latest = true AND st_customer_id IS NOT NULL AND source_system = ?
+        ))::int AS with_customer_id
+      FROM st_calls_v3_enrichment WHERE ${baseFilter}
+    `, [sourceSystem, ...bindings]);
+
+    const dayRows = await readRows<Record<string, unknown>>(this.database, `
+      SELECT
+        to_char(call_received_on AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+        COUNT(*)::int AS count
+      FROM st_calls_v3_enrichment
+      WHERE ${baseFilter}
+      GROUP BY 1 ORDER BY 1
+    `, bindings);
+
+    const hourRows = await readRows<Record<string, unknown>>(this.database, `
+      SELECT
+        EXTRACT(HOUR FROM call_received_on AT TIME ZONE 'UTC')::int AS hour,
+        COUNT(*)::int AS count
+      FROM st_calls_v3_enrichment
+      WHERE ${baseFilter}
+      GROUP BY 1 ORDER BY 1
+    `, bindings);
+
+    return {
+      totalCount: count(totals?.total_count),
+      withVoicemail: count(totals?.with_voicemail),
+      withCustomerId: count(totals?.with_customer_id),
+      byDay: dayRows.map((r): AbandonedCallsDaySummary => ({ date: String(r.date), count: count(r.count) })),
+      byHour: hourRows.map((r): AbandonedCallsHourSummary => ({ hour: count(r.hour), count: count(r.count) })),
+    };
+  }
+
+  // ─── D-02a: Voicemail Callback Alerts ─────────────────────────────────────
+  //
+  // Source: telecom_voicemail_callback_alerts (migration 023).
+  // Filters: optional status, optional ISO timestamp range on voicemail_at.
+  // Sort: voicemail_at DESC with source_id DESC as a stable tie-breaker.
+  // No PII columns are selected — source_id is the ST call ID (numeric string),
+  // not a phone number or customer-identifiable value.
+  public async listVoicemailCallbackAlerts(
+    page: number,
+    pageSize: number,
+    sourceSystem: string,
+    status?: VoicemailCallbackAlertStatus,
+    from?: Date,
+    to?: Date,
+  ): Promise<Paginated<VoicemailCallbackAlertItem>> {
+    const bindings: Knex.RawBinding[] = [sourceSystem];
+    let whereClause = 'source_system = ?';
+
+    if (status) {
+      whereClause += ' AND status = ?';
+      bindings.push(status);
+    }
+    if (from) {
+      whereClause += ' AND voicemail_at >= ?';
+      bindings.push(from.toISOString());
+    }
+    if (to) {
+      whereClause += ' AND voicemail_at < ?';
+      bindings.push(to.toISOString());
+    }
+
+    const [totalRow] = await readRows<Record<string, unknown>>(
+      this.database,
+      `SELECT COUNT(*)::int AS n FROM telecom_voicemail_callback_alerts WHERE ${whereClause}`,
+      bindings,
+    );
+
+    const rows = await readRows<Record<string, unknown>>(
+      this.database,
+      `SELECT
+        source_id,
+        status,
+        voicemail_at,
+        threshold_minutes,
+        business_minutes_elapsed,
+        threshold_exceeded_at,
+        callback_at,
+        updated_at
+       FROM telecom_voicemail_callback_alerts
+       WHERE ${whereClause}
+       ORDER BY voicemail_at DESC, source_id DESC
+       LIMIT ? OFFSET ?`,
+      [...bindings, pageSize, (page - 1) * pageSize],
+    );
+
+    return {
+      page,
+      pageSize,
+      totalCount: count(totalRow?.n),
+      data: rows.map((r) => ({
+        sourceId: String(r.source_id),
+        status: r.status as VoicemailCallbackAlertStatus,
+        voicemailAt: toIso(r.voicemail_at) ?? '',
+        thresholdMinutes: count(r.threshold_minutes),
+        businessMinutesElapsed: count(r.business_minutes_elapsed),
+        thresholdExceededAt: toIso(r.threshold_exceeded_at),
+        callbackAt: toIso(r.callback_at),
+        updatedAt: toIso(r.updated_at) ?? '',
+      })),
+    };
+  }
+  // ─── Telecom Agent Metrics ────────────────────────────────────────────────
+  //
+  // Aggregates per-agent call metrics from st_calls_v3_enrichment.
+  // That table has a unique index on (source_system, source_id) so each call
+  // contributes exactly once — no deduplication or join to raw_st_calls needed.
+  //
+  // NULL agent_id rows are kept as a distinct group ("unattributed") so that
+  // calls never assigned to an agent are visible rather than silently dropped.
+  //
+  // Duration: ISO-8601 strings (e.g. "PT5M30S") are parsed via PostgreSQL's
+  // interval type. Empty strings and NULLs are excluded from aggregates.
+  //
+  // Sorting: agent_id ASC NULLS LAST for deterministic pagination. The NULL
+  // group always appears last regardless of page/pageSize.
+  public async getAgentMetrics(
+    from: Date,
+    to: Date,
+    page: number,
+    pageSize: number,
+    sourceSystem: string,
+    agentId?: string,
+  ): Promise<Paginated<AgentMetricsItem>> {
+    const bindings: Knex.RawBinding[] = [sourceSystem, from.toISOString(), to.toISOString()];
+    let whereClause = `
+      source_system = ?
+      AND call_received_on IS NOT NULL
+      AND call_received_on >= ?
+      AND call_received_on < ?
+    `;
+
+    if (agentId !== undefined) {
+      whereClause += ` AND agent_id = ?`;
+      bindings.push(agentId);
+    }
+
+    // Count distinct agent groups (including the NULL group) matching the filter.
+    const [countRow] = await readRows<{ n: number }>(
+      this.database,
+      `SELECT COUNT(*)::int AS n
+       FROM (
+         SELECT agent_id
+         FROM st_calls_v3_enrichment
+         WHERE ${whereClause}
+         GROUP BY agent_id
+       ) sub`,
+      bindings,
+    );
+
+    const rows = await readRows<Record<string, unknown>>(
+      this.database,
+      `SELECT
+         agent_id,
+         MAX(agent_name)                                                              AS agent_name,
+         COUNT(*)::int                                                                AS total_calls,
+         COUNT(*) FILTER (WHERE direction = 'Inbound')::int                          AS inbound_calls,
+         COUNT(*) FILTER (WHERE direction = 'Outbound')::int                         AS outbound_calls,
+         COUNT(*) FILTER (WHERE call_type = 'Abandoned')::int                        AS abandoned_calls,
+         COUNT(*) FILTER (WHERE call_type = 'Booked')::int                           AS booked_calls,
+         COUNT(*) FILTER (WHERE call_type = 'Unbooked')::int                         AS unbooked_calls,
+         COUNT(*) FILTER (WHERE call_type = 'Excused')::int                          AS excused_calls,
+         COUNT(*) FILTER (WHERE call_type = 'NotLead')::int                          AS not_lead_calls,
+         COUNT(*) FILTER (WHERE call_type IS NOT NULL)::int                          AS classified_calls,
+         COUNT(*) FILTER (WHERE call_type IS NULL)::int                              AS unclassified_calls,
+         COALESCE(
+           SUM(EXTRACT(EPOCH FROM NULLIF(duration, '')::interval))::bigint, 0
+         )                                                                            AS total_duration_seconds,
+         COALESCE(
+           ROUND(AVG(EXTRACT(EPOCH FROM NULLIF(duration, '')::interval)))::bigint, 0
+         )                                                                            AS avg_duration_seconds,
+         MIN(call_received_on)                                                        AS first_call_at,
+         MAX(call_received_on)                                                        AS last_call_at
+       FROM st_calls_v3_enrichment
+       WHERE ${whereClause}
+       GROUP BY agent_id
+       ORDER BY agent_id ASC NULLS LAST
+       LIMIT ? OFFSET ?`,
+      [...bindings, pageSize, (page - 1) * pageSize],
+    );
+
+    return {
+      page,
+      pageSize,
+      totalCount: count(countRow?.n),
+      data: rows.map((r): AgentMetricsItem => ({
+        agentId: nullableString(r.agent_id),
+        agentName: nullableString(r.agent_name),
+        totalCalls: count(r.total_calls),
+        inboundCalls: count(r.inbound_calls),
+        outboundCalls: count(r.outbound_calls),
+        abandonedCalls: count(r.abandoned_calls),
+        bookedCalls: count(r.booked_calls),
+        unbookedCalls: count(r.unbooked_calls),
+        excusedCalls: count(r.excused_calls),
+        notLeadCalls: count(r.not_lead_calls),
+        classifiedCalls: count(r.classified_calls),
+        unclassifiedCalls: count(r.unclassified_calls),
+        totalDurationSeconds: count(r.total_duration_seconds),
+        avgDurationSeconds: count(r.avg_duration_seconds),
+        firstCallAt: toIso(r.first_call_at),
+        lastCallAt: toIso(r.last_call_at),
+      })),
+    };
+  }
+
+  // ─── Call-to-Revenue Attribution ──────────────────────────────────────────
+  //
+  // Attribution chain (the ONLY defensible path):
+  //   raw_st_calls.st_job_id  →  raw_st_invoices WHERE payload->'job'->>'id' = st_job_id
+  //
+  // If the call has no st_job_id the call cannot be attributed to revenue.
+  // st_customer_id is returned as context only — a customer may have many jobs
+  // and many invoices, so customer-level revenue cannot be attributed to a call.
+  //
+  // Financial fields: payload->>'total' (invoiced), payload->>'balance' (outstanding).
+  // Active filter: COALESCE((payload->>'active')::boolean, true) = true.
+  // Only is_latest = true rows are considered (deduplication guard).
+  public async getCallRevenueAttribution(
+    callId: string,
+    sourceSystem: string,
+  ): Promise<CallRevenueAttribution> {
+    // Step 1: Fetch the call row to get st_job_id and st_customer_id.
+    const [callRow] = await readRows<{ st_job_id: string | null; st_customer_id: string | null }>(
+      this.database,
+      `SELECT st_job_id, st_customer_id
+       FROM raw_st_calls
+       WHERE source_id = ? AND source_system = ? AND is_latest = true
+       LIMIT 1`,
+      [callId, sourceSystem],
+    );
+
+    if (!callRow) {
+      // Call ID not found in raw_st_calls — not ingested yet or wrong source system.
+      return {
+        callId,
+        attributionStatus: 'NO_LINKAGE',
+        attributionMethod: 'none',
+        customerId: null,
+        jobId: null,
+        linkedInvoiceCount: 0,
+        invoicedAmount: null,
+        outstandingBalance: null,
+        currency: null,
+      };
+    }
+
+    const jobId = callRow.st_job_id ?? null;
+    const customerId = callRow.st_customer_id ?? null;
+
+    if (!jobId) {
+      // Call exists but has no job linkage — customer context returned; no revenue.
+      return {
+        callId,
+        attributionStatus: 'NO_JOB',
+        attributionMethod: 'none',
+        customerId,
+        jobId: null,
+        linkedInvoiceCount: 0,
+        invoicedAmount: null,
+        outstandingBalance: null,
+        currency: null,
+      };
+    }
+
+    // Step 2: Aggregate all active, latest invoices linked to this job.
+    const [aggRow] = await readRows<{
+      invoice_count: number;
+      total_sum: string | null;
+      balance_sum: string | null;
+    }>(
+      this.database,
+      `SELECT
+         COUNT(*)::int                              AS invoice_count,
+         SUM((payload->>'total')::numeric)::text    AS total_sum,
+         SUM((payload->>'balance')::numeric)::text  AS balance_sum
+       FROM raw_st_invoices
+       WHERE source_system = ?
+         AND is_latest = true
+         AND payload->'job'->>'id' = ?
+         AND COALESCE((payload->>'active')::boolean, true) = true`,
+      [sourceSystem, jobId],
+    );
+
+    const invoiceCount = aggRow?.invoice_count ?? 0;
+
+    return {
+      callId,
+      attributionStatus: 'JOB_LINKED',
+      attributionMethod: 'call_job_invoice',
+      customerId,
+      jobId,
+      linkedInvoiceCount: invoiceCount,
+      invoicedAmount: invoiceCount > 0 ? (aggRow?.total_sum ?? '0') : null,
+      outstandingBalance: invoiceCount > 0 ? (aggRow?.balance_sum ?? '0') : null,
+      currency: invoiceCount > 0 ? 'USD' : null,
     };
   }
 }

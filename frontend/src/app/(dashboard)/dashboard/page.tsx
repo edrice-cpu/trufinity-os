@@ -43,7 +43,7 @@ export default async function DashboardPage({
   return (
     <div>
       <PageHeader
-        title={`Good morning, Daniel`}
+        title={`Good morning`}
         description={`Here's how ${companyMeta.shortName} is performing — ${formatReportDate()}.`}
         action={
           <Link
