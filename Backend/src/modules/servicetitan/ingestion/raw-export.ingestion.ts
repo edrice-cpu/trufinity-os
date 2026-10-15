@@ -163,7 +163,12 @@ export class ServiceTitanRawIngestionService {
           else records.push({ sourceId, payload: payload as Record<string, unknown> });
         }
         hasMore = response.hasMore;
-        continuation = hasMore ? response.continueFrom ?? null : null;
+        // ServiceTitan returns continueFrom on the LAST page too: it is the
+        // cursor for "changes since this export". Keeping it makes the next
+        // run incremental; dropping it (the old behaviour) re-downloaded every
+        // record each day and wrote a new raw version for all of them.
+        const nextCursor = response.continueFrom?.trim() ? response.continueFrom : null;
+        continuation = nextCursor;
         await repository.commitBatch(syncRunId, records, errors);
         await repository.updateContinuation(continuation);
         processed += records.length;

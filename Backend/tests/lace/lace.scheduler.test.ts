@@ -16,6 +16,17 @@ jest.mock('../../src/modules/lace/ingestion/call-analysis.ingestion', () => ({
 }));
 jest.mock('../../src/modules/lace/ingestion/agent-performance.ingestion', () => ({
   laceAgentPerformanceIngestionService: { run: agentPerformanceRun },
+  LaceAgentPerformanceIngestionService: jest.fn(() => ({ run: agentPerformanceRun })),
+}));
+jest.mock('../../src/modules/lace/booking-rate-reconciliation', () => ({
+  reconcileLaceBookingRates: jest.fn(async () => []),
+}));
+const freshnessCheck = jest.fn(async () => []);
+jest.mock('../../src/modules/lace/lace-freshness', () => ({
+  getLaceFreshness: jest.fn(async () => []),
+}));
+jest.mock('../../src/modules/lace/lace-pipeline-alert', () => ({
+  lacePipelineAlerter: { check: freshnessCheck },
 }));
 jest.mock('../../src/modules/lace/canonical/call-analysis.canonical.service', () => ({
   callAnalysisCanonicalService: { sync: canonicalSync },
@@ -54,13 +65,45 @@ describe('Lace scheduler', () => {
     narrateRun.mockResolvedValue({ narrated: 0, failed: 0 });
   });
 
-  it('registers a cron task for both Call Analysis and Agent Performance using the configured expressions', async () => {
-    const { startLaceScheduler } = await import('../../src/modules/lace/lace.scheduler');
-    const { env } = await import('../../src/config/env');
+  // env is re-read on each fresh import, so these set process.env before importing.
+  const withEnv = async (vars: Record<string, string>, run: () => Promise<void>) => {
+    const previous = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, vars);
+    try {
+      await run();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  };
 
-    startLaceScheduler();
+  it('registers Call Analysis, S3 Agent Performance and the reaper when the agent-performance prefix is set', async () => {
+    await withEnv({ LACE_S3_AGENT_PERFORMANCE_PREFIX: 'agent-performance/', LACE_REPORT_MAILBOX: '' }, async () => {
+      const { startLaceScheduler } = await import('../../src/modules/lace/lace.scheduler');
+      const { env } = await import('../../src/config/env');
+      startLaceScheduler();
+      expect(scheduledTasks).toEqual([env.LACE_CALL_ANALYSIS_CRON, env.LACE_AGENT_PERFORMANCE_CRON, env.LACE_STUCK_RUN_REAPER_CRON, env.LACE_FRESHNESS_CHECK_CRON]);
+    });
+  });
 
-    expect(scheduledTasks).toEqual([env.LACE_CALL_ANALYSIS_CRON, env.LACE_AGENT_PERFORMANCE_CRON, env.LACE_STUCK_RUN_REAPER_CRON]);
+  it('does not schedule S3 Agent Performance with an empty prefix (it would read the whole bucket)', async () => {
+    await withEnv({ LACE_S3_AGENT_PERFORMANCE_PREFIX: '', LACE_REPORT_MAILBOX: '' }, async () => {
+      const { startLaceScheduler } = await import('../../src/modules/lace/lace.scheduler');
+      const { env } = await import('../../src/config/env');
+      startLaceScheduler();
+      expect(scheduledTasks).toEqual([env.LACE_CALL_ANALYSIS_CRON, env.LACE_STUCK_RUN_REAPER_CRON, env.LACE_FRESHNESS_CHECK_CRON]);
+    });
+  });
+
+  it('schedules the report-inbox pull when LACE_REPORT_MAILBOX is set', async () => {
+    await withEnv({ LACE_S3_AGENT_PERFORMANCE_PREFIX: '', LACE_REPORT_MAILBOX: 'lace-report@trufinity.ca', LACE_REPORT_MAILBOX_CRON: '30 3 * * *' }, async () => {
+      const { startLaceScheduler } = await import('../../src/modules/lace/lace.scheduler');
+      const { env } = await import('../../src/config/env');
+      startLaceScheduler();
+      expect(scheduledTasks).toEqual([env.LACE_CALL_ANALYSIS_CRON, '30 3 * * *', env.LACE_STUCK_RUN_REAPER_CRON, env.LACE_FRESHNESS_CHECK_CRON]);
+    });
   });
 
   it('running a scheduled tick calls the ingestion service', async () => {
@@ -72,6 +115,8 @@ describe('Lace scheduler', () => {
     await tasks[0].handler();
 
     expect(callAnalysisRun).toHaveBeenCalledTimes(1);
+    // Every sync tick ends with a feed health check (SPEC-BI-001 Layer 1).
+    expect(freshnessCheck).toHaveBeenCalledTimes(1);
   });
 
   it('chains canonical sync after a successful call-analysis raw sync (afterSuccess)', async () => {

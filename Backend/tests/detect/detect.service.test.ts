@@ -18,6 +18,7 @@ function callRow(receivedAt: Date, booked: boolean, objections: string[] | null 
     lace_call_id: id,
     call_link: `https://www.lace.ai/app/call-center-all-calls/${id}`,
     booked,
+    qualified: true,
     objections,
     received_at: receivedAt,
   };

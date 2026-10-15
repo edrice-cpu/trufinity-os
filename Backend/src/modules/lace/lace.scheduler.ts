@@ -7,9 +7,14 @@ import { withAdvisoryLock } from '../../utils/advisory-lock';
 import { detectService } from '../detect/detect.service';
 import { narrateService } from '../narrate/narrate.service';
 import { laceCallAnalysisIngestionService } from './ingestion/call-analysis.ingestion';
-import { laceAgentPerformanceIngestionService } from './ingestion/agent-performance.ingestion';
+import { LaceAgentPerformanceIngestionService, laceAgentPerformanceIngestionService } from './ingestion/agent-performance.ingestion';
+import { LaceReportMailboxStore } from './report-mailbox.store';
+import { googleWorkspaceAuthService } from '../google/google-auth.service';
 import { LaceSyncInProgressError } from './ingestion/lace-raw.ingestion';
 import { callAnalysisCanonicalService } from './canonical/call-analysis.canonical.service';
+import { reconcileLaceBookingRates } from './booking-rate-reconciliation';
+import { getLaceFreshness } from './lace-freshness';
+import { lacePipelineAlerter } from './lace-pipeline-alert';
 
 const DETECT_NARRATE_LOCK_KEY = 'trufinity:detect-narrate-pipeline';
 
@@ -69,11 +74,32 @@ const SCHEDULED_SYNCS: LaceScheduledSync[] = [
       await runDetectAndNarrate();
     },
   },
-  {
-    exportType: 'agent_performance',
-    cronExpression: env.LACE_AGENT_PERFORMANCE_CRON,
-    run: () => laceAgentPerformanceIngestionService.run(),
-  },
+  // S3 delivery of the agent-performance export. Only scheduled when its prefix
+  // is set: with an empty prefix it would list the WHOLE bucket and try to read
+  // every call-analysis CSV as an agent-performance report.
+  ...(env.LACE_S3_AGENT_PERFORMANCE_PREFIX.trim()
+    ? [{
+      exportType: 'agent_performance',
+      cronExpression: env.LACE_AGENT_PERFORMANCE_CRON,
+      run: () => laceAgentPerformanceIngestionService.run(),
+      // Lace's reported monthly Success Ratio vs. the rate D-01 uses - see
+      // booking-rate-reconciliation.ts. Mismatches are logged as warnings.
+      afterSuccess: async () => { await reconcileLaceBookingRates(); },
+    }]
+    : []),
+  // Email delivery: Lace sends the Monthly Agent Performance Report to
+  // LACE_REPORT_MAILBOX. Checked daily (the send date varies); a report already
+  // ingested is skipped, so most ticks are a cheap no-op search.
+  ...(env.LACE_REPORT_MAILBOX.trim()
+    ? [{
+      exportType: 'agent_performance',
+      cronExpression: env.LACE_REPORT_MAILBOX_CRON,
+      run: () => new LaceAgentPerformanceIngestionService(
+        new LaceReportMailboxStore(googleWorkspaceAuthService.getLaceReportGmailClient(env.LACE_REPORT_MAILBOX), env.LACE_REPORT_GMAIL_QUERY),
+      ).run(),
+      afterSuccess: async () => { await reconcileLaceBookingRates(); },
+    }]
+    : []),
 ];
 
 // How many of the most recent sync_runs (for this export type) to look at
@@ -96,7 +122,23 @@ async function logIfRepeatedlyFailing(exportType: string): Promise<void> {
   }
 }
 
+// Evaluates every Lace feed's health and raises an alert for any that is
+// FAILING / STALE / NO_DATA (SPEC-BI-001 Layer 1). Never throws: a broken
+// health check must not take a sync down with it, but it is logged.
+async function checkLaceFreshness(): Promise<void> {
+  try {
+    await lacePipelineAlerter.check(await getLaceFreshness());
+  } catch (error) {
+    logger.error('[LaceAI] Feed health check failed', { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 async function runScheduledSync(sync: LaceScheduledSync): Promise<void> {
+  await runScheduledSyncOnce(sync);
+  await checkLaceFreshness();
+}
+
+async function runScheduledSyncOnce(sync: LaceScheduledSync): Promise<void> {
   try {
     const result = await sync.run();
     if (result.filesFailed > 0) {
@@ -155,7 +197,7 @@ async function reapStuckRuns(): Promise<void> {
   }
 }
 
-// Registers the Lace AI ingestion cron jobs plus the stuck-run reaper. Call
+// Registers the Lace AI ingestion cron jobs, the stuck-run reaper and the feed health check. Call
 // once at process startup (see server.ts) - not from app.ts, so importing
 // the Express app in tests doesn't also spin up background cron jobs.
 export function startLaceScheduler(): ScheduledTask[] {
@@ -172,5 +214,10 @@ export function startLaceScheduler(): ScheduledTask[] {
   );
   logger.info(`[LaceAI] Scheduled stuck-run reaper (cron: ${env.LACE_STUCK_RUN_REAPER_CRON})`);
 
-  return [...tasks, reaperTask];
+  // Independent of the syncs, so a feed that stops entirely (cron not firing,
+  // Lace not sending) is still caught.
+  const freshnessTask = cron.schedule(env.LACE_FRESHNESS_CHECK_CRON, () => checkLaceFreshness());
+  logger.info(`[LaceAI] Scheduled feed health check (cron: ${env.LACE_FRESHNESS_CHECK_CRON})`);
+
+  return [...tasks, reaperTask, freshnessTask];
 }

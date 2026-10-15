@@ -74,6 +74,9 @@ const envSchema = z.object({
   GMAIL_CLASSIFIER_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(2),
   GMAIL_CLASSIFIER_PROMPT_VERSION: z.string().default('v1'),
   WORK_ITEM_NOTIFICATION_RECIPIENT: z.preprocess((v) => v === '' ? undefined : v, z.string().email().optional()),
+  // Who is emailed when a data feed fails or goes stale (SPEC-BI-001 Layer 1:
+  // failed extraction must raise an alert). Empty = ERROR log only.
+  PIPELINE_ALERT_RECIPIENT: z.preprocess((v) => v === '' ? undefined : v, z.string().email().optional()),
   // Maximum SMTP delivery attempts per work-item notification before giving up.
   // Rows at or above this count are excluded from recoverPendingNotifications().
   WORK_ITEM_NOTIFICATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(5),
@@ -102,6 +105,25 @@ const envSchema = z.object({
   // well before the next scheduled ingestion would notice on its own.
   LACE_STUCK_RUN_REAPER_CRON: z.string().default('*/30 * * * *'),
   LACE_STUCK_RUN_THRESHOLD_MINUTES: z.coerce.number().default(60),
+  // Max allowed gap (percentage points) between our booking rate (Lace's
+  // booked/qualified applied to call-level data) and the Success Ratio Lace
+  // reports per CSR per month before it's logged as a mismatch. Lace rounds to
+  // whole percents, so this must stay above ~1. Starting value - owner to confirm.
+  LACE_BOOKING_RATE_RECONCILIATION_TOLERANCE_POINTS: z.coerce.number().min(0).default(3),
+  // Dedicated Google Workspace inbox Lace AI emails its Monthly Agent
+  // Performance Report to. When set, a daily job pulls the CSV attachments of
+  // matching messages (LACE_REPORT_GMAIL_QUERY) via the service account - read
+  // only, this one mailbox only, attachments only. Empty disables it.
+  LACE_REPORT_MAILBOX: z.string().default(''),
+  LACE_REPORT_MAILBOX_CRON: z.string().default('30 3 * * *'),
+  LACE_REPORT_GMAIL_QUERY: z.string().default('subject:"Monthly Agent Performance Report" has:attachment filename:csv newer_than:180d'),
+  // Lace feed health (lace-freshness.ts). A feed is STALE when no new Lace
+  // file has arrived within this window: call analysis is a daily export,
+  // agent performance a monthly report. Starting values - owner to confirm.
+  LACE_CALL_ANALYSIS_MAX_AGE_HOURS: z.coerce.number().int().min(1).default(36),
+  LACE_AGENT_PERFORMANCE_MAX_AGE_DAYS: z.coerce.number().int().min(1).default(45),
+  // When the health check runs (besides after every Lace sync). Server time.
+  LACE_FRESHNESS_CHECK_CRON: z.string().default('0 6 * * *'),
 
   // ServiceTitan: previously had no automated scheduler at all - ingestion
   // only ran from dev-only routes (403 outside NODE_ENV=development) or a
@@ -112,6 +134,11 @@ const envSchema = z.object({
   SERVICETITAN_BUSINESS_UNIT_SYNC_CRON: z.string().default('30 1 * * 0'),
   SERVICETITAN_STUCK_RUN_REAPER_CRON: z.string().default('*/30 * * * *'),
   SERVICETITAN_STUCK_RUN_THRESHOLD_MINUTES: z.coerce.number().default(60),
+  // On startup, run any ServiceTitan entity sync whose last success is older
+  // than this (Business Units: 8 days) - catches up crons missed while the
+  // process was down. One entity at a time, after a short delay.
+  SERVICETITAN_CATCH_UP_ON_STARTUP: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  SERVICETITAN_CATCH_UP_AFTER_HOURS: z.coerce.number().int().min(1).default(26),
 
   // Detect layer thresholds (SPEC-BI-001 exact values not confirmed yet -
   // these are reasonable defaults, deliberately env-tunable so they can be
@@ -183,7 +210,9 @@ const envSchema = z.object({
   // before this rule is considered calibrated for production.
   GOOGLE_R01_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   GOOGLE_R01_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(240),
-  GOOGLE_R01_TIMEZONE: z.string().default('America/Toronto'),
+  // Business-hours clock for R-01. TruFinity operates in Kelowna/Okanagan/
+  // Thompson, BC (SPEC-BI-001 Section 1), i.e. Pacific time - not Eastern.
+  GOOGLE_R01_TIMEZONE: z.string().default('America/Vancouver'),
   GOOGLE_R01_BUSINESS_START_HOUR: z.coerce.number().int().min(0).max(23).default(9),
   GOOGLE_R01_BUSINESS_END_HOUR: z.coerce.number().int().min(1).max(24).default(17),
   GOOGLE_R01_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),

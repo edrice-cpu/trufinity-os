@@ -75,41 +75,53 @@ class FakeObjectStore implements LaceObjectStore {
   }
 }
 
-const HEADER =
-  'Agent name,Agent id,Company,Period,Period start,Period end,Total calls,Analyzed calls,Qualified calls,Qualified %,Booked calls,Booking rate %,Target booking rate %,Variance vs target,Qualified & unbooked,Avg playbook score,Avg handle time (sec),Transferred calls,Transfer rate %,Jobs created,Jobs completed,Jobs cancelled,Invoice subtotal (USD),Revenue per booked call (USD)';
-const AGENT_ROW = 'Dana Whitfield,4412,Northwind Plumbing,MONTHLY,2026-07-01,2026-07-31,318,318,241,75.79,214,88.80,90.00,-1.20,27,89.40,371,18,5.66,214,197,17,284350.00,1328.74';
-const TENANT_TOTAL_ROW = 'TOTAL / TENANT,,Northwind Home Services,MONTHLY,2026-07-01,2026-07-31,2315,2315,1711,73.91,1482,86.62,90.00,-3.38,229,85.61,346,155,6.70,1482,1366,116,1875130.00,1265.27';
+// Real Monthly Agent Performance Report format (report_20261011.csv, emailed by Lace).
+const HEADER = 'CSR,Period Start,Period End,Total Calls,Success Ratio,Cancellation Rate,Booked,Qualified,Playbook Score,Most Coaching Needed';
+const SEPT_ROW = 'Princess Suzainne Suerte,2026-09-01 04:00:00,2026-09-30 21:00:00,215,80%,4%,45,56,60%,Service Fee Concerns;Customer Needs Time to Decide;Immediate Service Unavailability';
+const AUG_ROW = 'Princess Suzainne Suerte,2026-08-01 04:00:00,2026-08-31 21:00:00,226,90%,9%,44,49,63%,Customer Needs Time to Decide;Immediate Service Unavailability;Service Fee Concerns';
+// A CSR with no calls that month still gets a (mostly blank) row.
+const EMPTY_MONTH_ROW = 'Jane Mapatac,2026-09-01 04:00:00,2026-09-30 21:00:00,0,0,,0,,';
 
 function fileObject(key: string): LaceS3Object {
   return { key, eTag: 'etag-1', lastModified: new Date('2026-08-01T00:00:00Z'), size: 100 };
 }
 
 describe('Lace Agent Performance raw ingestion', () => {
-  it('keys per-agent rows by Agent id + period, and the tenant rollup row by a synthetic TENANT_TOTAL id', async () => {
-    const file = fileObject('agent-performance/2026-07.csv');
-    const objectStore = new FakeObjectStore([file], new Map([[file.key, `${HEADER}\n${AGENT_ROW}\n${TENANT_TOTAL_ROW}\n`]]));
+  it('keys rows by CSR + Period Start + Period End and keeps the payload exactly as sent', async () => {
+    const file = fileObject('manual-upload/report_20261011.csv');
+    const objectStore = new FakeObjectStore([file], new Map([[file.key, `${HEADER}
+${SEPT_ROW}
+${AUG_ROW}
+${EMPTY_MONTH_ROW}
+`]]));
     const repository = new FakeRepository();
 
     const result = await new LaceAgentPerformanceIngestionService(objectStore, repository).run();
 
-    expect(result.recordsProcessed).toBe(2);
+    expect(result.recordsProcessed).toBe(3);
     expect(repository.records.map((r) => r.sourceId)).toEqual([
-      '4412__2026-07-01__2026-07-31',
-      'TENANT_TOTAL__2026-07-01__2026-07-31',
+      'Princess Suzainne Suerte__2026-09-01 04:00:00__2026-09-30 21:00:00',
+      'Princess Suzainne Suerte__2026-08-01 04:00:00__2026-08-31 21:00:00',
+      'Jane Mapatac__2026-09-01 04:00:00__2026-09-30 21:00:00',
     ]);
+    expect(repository.records[0]?.payload).toMatchObject({ 'Success Ratio': '80%', Booked: '45', Qualified: '56' });
     expect(repository.errors).toHaveLength(0);
   });
 
-  it('flags a row with no period dates as an error instead of guessing a key', async () => {
-    const file = fileObject('agent-performance/2026-07.csv');
-    const malformedRow = 'Ghost Agent,9999,Northwind Plumbing,MONTHLY,,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0';
-    const objectStore = new FakeObjectStore([file], new Map([[file.key, `${HEADER}\n${malformedRow}\n`]]));
+  it('flags a row with no CSR or period as an error instead of guessing a key', async () => {
+    const file = fileObject('manual-upload/report.csv');
+    const noCsr = ',2026-09-01 04:00:00,2026-09-30 21:00:00,10,50%,0%,5,10,60%,';
+    const noPeriod = 'Ghost Agent,,,0,0,,0,,';
+    const objectStore = new FakeObjectStore([file], new Map([[file.key, `${HEADER}
+${noCsr}
+${noPeriod}
+`]]));
     const repository = new FakeRepository();
 
     const result = await new LaceAgentPerformanceIngestionService(objectStore, repository).run();
 
     expect(result.recordsProcessed).toBe(0);
-    expect(repository.errors).toHaveLength(1);
-    expect(repository.errors[0].message).toBe('agent_performance row is missing a valid natural key.');
+    expect(repository.errors).toHaveLength(2);
+    expect(repository.errors[0]?.message).toBe('agent_performance row is missing a valid natural key.');
   });
 });

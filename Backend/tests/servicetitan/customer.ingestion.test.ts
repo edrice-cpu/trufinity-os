@@ -74,6 +74,23 @@ describe('ServiceTitan customer raw ingestion', () => {
     expect(repository.metadataUpdates).toEqual(['cursor-1', null]);
   });
 
+  it('keeps the continueFrom of the last page so the next run only fetches changes', async () => {
+    const api = new FakeApi([
+      { hasMore: true, continueFrom: 'cursor-1', data: [{ id: 1 }] },
+      { hasMore: false, continueFrom: 'cursor-final', data: [{ id: 2 }] },
+    ]);
+    const repository = new FakeRepository();
+
+    await new ServiceTitanCustomerIngestionService(api, repository).run();
+    expect(repository.metadataUpdates).toEqual(['cursor-1', 'cursor-final']);
+
+    // Next run resumes from the stored cursor instead of re-exporting everything.
+    repository.runStatus = 'RUNNING';
+    const nextApi = new FakeApi([{ hasMore: false, continueFrom: 'cursor-next', data: [] }]);
+    await new ServiceTitanCustomerIngestionService(nextApi, repository).run();
+    expect(nextApi.calls.map((call) => call.params)).toEqual([{ from: 'cursor-final' }]);
+  });
+
   it('keeps previous history non-latest when a source record is ingested again', async () => {
     const repository = new FakeRepository();
     await new ServiceTitanCustomerIngestionService(new FakeApi([{ hasMore: false, data: [{ id: 7, name: 'old' }] }]), repository).run();

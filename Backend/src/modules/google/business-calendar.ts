@@ -15,7 +15,7 @@
  */
 
 export interface BusinessCalendarConfig {
-  /** IANA timezone identifier, e.g. 'America/Toronto'. */
+  /** IANA timezone identifier, e.g. 'America/Vancouver'. */
   readonly timezone: string;
   /** Hour (0–23) at which the business day starts (inclusive). */
   readonly startHour: number;
