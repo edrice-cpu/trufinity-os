@@ -18,6 +18,8 @@
     "google:gmail-historical-classify": "node dist/scripts/google-gmail-historical-classify.js",
     "lace:import-agent-performance": "node dist/scripts/lace-import-agent-performance.js",
     "servicetitan:sync": "node dist/scripts/servicetitan-sync.js",
+    "google:gmail-thread-state-backfill": "node dist/scripts/google-gmail-thread-state-backfill.js",
+    "google:migrate-026-allowlisted": "ts-node -T src/scripts/google-migration-allowlist.ts --migration 026",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",

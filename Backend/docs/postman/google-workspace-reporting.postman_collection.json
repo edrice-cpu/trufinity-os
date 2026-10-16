@@ -1,0 +1,71 @@
+{
+  "info": {
+    "name": "TruFinity Google Workspace Reporting (local)",
+    "description": "Read-only reporting requests plus explicitly labelled work-item mutation requests. Set bearerToken to a freshly authorized client session. The local source currently exposes 13 Google routes; the requested 16-route inventory has three routes absent from google.routes.ts (see collection documentation). Do not run mutation requests during read-only verification.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:3000" },
+    { "key": "bearerToken", "value": "", "type": "string" },
+    { "key": "mailboxAddress", "value": "service@trufinity.ca" },
+    { "key": "workItemId", "value": "00000000-0000-0000-0000-000000000000" },
+    { "key": "page", "value": "1" },
+    { "key": "pageSize", "value": "25" },
+    { "key": "resolutionNote", "value": "Manual Postman verification" }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('Response is JSON when a body is present', function () { if (pm.response.text()) pm.response.to.be.json; });",
+          "pm.test('No sensitive Gmail content fields are returned', function () {",
+          "  var body = pm.response.json(); var forbidden = ['subject','body','snippet','html','attachment','attachments','payload','gmail_payload'];",
+          "  function walk(value) { if (!value || typeof value !== 'object') return; Object.keys(value).forEach(function (key) { pm.expect(forbidden).not.to.include(key.toLowerCase()); walk(value[key]); }); }",
+          "  if (body) walk(body);",
+          "});",
+          "pm.test('No credential-like response fields are returned', function () {",
+          "  var text = pm.response.text().toLowerCase(); pm.expect(text).not.to.include('authorization'); pm.expect(text).not.to.include('api_key');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Work item APIs (6 routes; mutations require explicit approval)",
+      "description": "All routes require bearer authentication and client-only authorization. GET responses contain classification/work-item metadata and Gmail deep links. POST requests mutate work-item state and must not be run during a read-only test.",
+      "item": [
+        { "name": "GET Work-item stats", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/work-items/stats", "description": "200: {status:'success',data:{totalOpen,escalation,reviewRequired,acknowledged,resolved,breached}}" } },
+        { "name": "GET Work-item list", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/work-items?page=1&pageSize={{pageSize}}&mailbox_address={{mailboxAddress}}&work_type=REVIEW_REQUIRED&workflow_status=OPEN&sla_state=ON_TRACK", "description": "Query parameters: page, pageSize (max 100), mailbox_address, work_type, workflow_status, sla_state. 200 data: {items,total,page,pageSize}." } },
+        { "name": "GET Work-item by ID", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/work-items/{{workItemId}}", "description": "200 data is a metadata-only WorkItemRow; 404 for an unknown or non-UUID ID." } },
+        { "name": "POST Work-item acknowledge (MUTATION)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/work-items/{{workItemId}}/acknowledge", "description": "Mutation. 200 returns the updated WorkItemRow; 404 for unknown ID." } },
+        { "name": "POST Work-item resolve (MUTATION)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"resolution_note\": \"{{resolutionNote}}\"\n}" }, "url": "{{baseUrl}}/api/google/work-items/{{workItemId}}/resolve", "description": "Mutation. Body requires resolution_note (1-2000 chars). 400 validation error, 200 updated item, or 404." } },
+        { "name": "POST Work-item not-a-problem (MUTATION)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"dismissal_reason\": \"Manual verification\"\n}" }, "url": "{{baseUrl}}/api/google/work-items/{{workItemId}}/not-a-problem", "description": "Mutation. Body dismissal_reason is optional, max 500 chars. 200 updated item, 404 for unknown/terminal item, or 400 validation error." } }
+      ]
+    },
+    {
+      "name": "Responsiveness reporting APIs (7 implemented routes)",
+      "description": "All routes are GET, bearer-authenticated, client-only, metadata-only. R01/R05 summary routes have no pagination; list routes use page/page_size capped at 100. R05 requires completed derived-state backfill and can return 503 R05_BACKFILL_INCOMPLETE before completion.",
+      "item": [
+        { "name": "R01 GET Unanswered summary", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/unanswered/summary?mailbox_address={{mailboxAddress}}&status=OPEN&classification=GENERAL&from_date=2026-09-01&to_date=2026-10-16", "description": "Filters: mailbox_address, status OPEN|REPLIED, classification EMERGENCY|GENERAL (or is_emergency=true|false), from_date, to_date. 200 data: totalCount, byStatus, byClassification." } },
+        { "name": "R01 GET Unanswered list", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/unanswered?page=1&page_size={{pageSize}}&mailbox_address={{mailboxAddress}}&status=OPEN&classification=GENERAL", "description": "Filters as summary plus page/page_size (max 100). 200 data: {page,pageSize,totalCount,data[]} with alert metadata and Gmail thread URL." } },
+        { "name": "R02 GET Stalled", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/stalled?page=1&page_size={{pageSize}}&mailbox_address={{mailboxAddress}}&status=OPEN&stall_reason=INACTIVITY", "description": "Filters: page, page_size (max 100), mailbox_address, status OPEN|RESOLVED, stall_reason INACTIVITY|EXCESSIVE_EXCHANGES. Returns stalled alert metadata." } },
+        { "name": "R03 GET Reply latency", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/reply-latency?page=1&page_size={{pageSize}}&mailbox_address={{mailboxAddress}}&status=LATE&from_date=2026-09-01&to_date=2026-10-16", "description": "Filters: page, page_size (max 100), mailbox_address, status ON_TIME|LATE, from_date, to_date. Returns reply-pair metadata and Gmail URL." } },
+        { "name": "R04 GET After-hours", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/after-hours?page=1&page_size={{pageSize}}&mailbox_address={{mailboxAddress}}&status=OPEN", "description": "Filters: page, page_size (max 100), mailbox_address, status OPEN|RESOLVED. Returns after-hours backlog metadata." } },
+        { "name": "R05 GET Aging Queue summary", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/aging-queue/summary?mailbox_address={{mailboxAddress}}", "description": "Filter: mailbox_address. 200 data is per-mailbox aging metrics. Requires R05 backfill completion; otherwise 503 with code R05_BACKFILL_INCOMPLETE." } },
+        { "name": "R05 GET Aging Queue list", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/aging-queue?page=1&page_size={{pageSize}}&mailbox_address={{mailboxAddress}}&sort=oldest_first", "description": "Filters: mailbox_address, page, page_size (max 100), sort oldest_first|newest_first. Returns paginated unanswered thread metadata and Gmail thread URLs." } }
+      ]
+    },
+    {
+      "name": "Negative authorization examples (3 requests; do not use a real token)",
+      "description": "These duplicate implemented routes to exercise 401/403 behavior. Leave Authorization empty or use a deliberately invalid placeholder. Never paste a production token into a saved collection.",
+      "item": [
+        { "name": "Unauthenticated reporting request (expect 401)", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/google/reporting/responsiveness/aging-queue/summary" } },
+        { "name": "Invalid bearer reporting request (expect 401)", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer invalid-local-test-token" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/unanswered/summary" } },
+        { "name": "Authenticated non-client request (expect 403)", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{nonClientToken}}" }], "url": "{{baseUrl}}/api/google/reporting/responsiveness/aging-queue" } }
+      ]
+    }
+  ]
+}

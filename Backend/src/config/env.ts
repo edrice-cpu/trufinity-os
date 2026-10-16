@@ -26,6 +26,9 @@ const envSchema = z.object({
   AUTH_PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
   AUTH_MAX_FAILED_LOGINS: z.coerce.number().int().min(3).max(50).default(5),
   AUTH_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  // Single dashboard client identity. This is compared only with the
+  // server-authenticated session user; request-supplied identity is ignored.
+  GOOGLE_DASHBOARD_ALLOWED_EMAILS: z.string().trim().pipe(z.email()),
 
   // Outbound email (SMTP) used for password reset messages
   SMTP_HOST: z.string().default(''),
@@ -208,15 +211,92 @@ const envSchema = z.object({
   // ⚠ PRODUCT CONFIRMATION REQUIRED: GOOGLE_R01_THRESHOLD_MINUTES default (240 = 4 business hours)
   // was chosen as a conservative placeholder. The product team must confirm the exact threshold
   // before this rule is considered calibrated for production.
+  // Timezone and business hours: Daniel confirmed Pacific Time, 8:00 AM–4:30 PM (2026-10-09).
   GOOGLE_R01_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   GOOGLE_R01_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(240),
-  // Business-hours clock for R-01. TruFinity operates in Kelowna/Okanagan/
-  // Thompson, BC (SPEC-BI-001 Section 1), i.e. Pacific time - not Eastern.
-  GOOGLE_R01_TIMEZONE: z.string().default('America/Vancouver'),
-  GOOGLE_R01_BUSINESS_START_HOUR: z.coerce.number().int().min(0).max(23).default(9),
-  GOOGLE_R01_BUSINESS_END_HOUR: z.coerce.number().int().min(1).max(24).default(17),
+  GOOGLE_R01_TIMEZONE: z.string().default('America/Los_Angeles'),
+  GOOGLE_R01_BUSINESS_START_HOUR: z.coerce.number().int().min(0).max(23).default(8),
+  GOOGLE_R01_BUSINESS_END_HOUR: z.coerce.number().int().min(1).max(24).default(16),
+  GOOGLE_R01_BUSINESS_END_MINUTE: z.coerce.number().int().min(0).max(59).default(30),
   GOOGLE_R01_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   GOOGLE_R01_EVAL_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
+  // Emergency classification — disabled until the v2 prompt and DB migration are deployed.
+  // Requires: migration 20261015120000_023_emergency_classification_label.ts executed first.
+  GOOGLE_R01_EMERGENCY_CLASSIFICATION_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Daniel confirmed: 25 minutes for confirmed emergencies.
+  GOOGLE_R01_EMERGENCY_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(1440).default(25),
+  // High bar: only act on high-confidence emergency detections.
+  GOOGLE_R01_EMERGENCY_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.9),
+  // Comma-separated prompt versions that include the 'emergency' label.
+  // v1 and earlier did not emit 'emergency'; classifications from those versions are ignored.
+  GOOGLE_R01_EMERGENCY_TRUSTED_PROMPT_VERSIONS: z.string().default('v2'),
+
+  // R-02: Stalled Thread Detection
+  // Condition A (inactivity) threshold is 24 coverage hours (Mon–Fri 8 AM–10 PM,
+  // Sat–Sun 7 AM–10 PM, America/Los_Angeles — Daniel confirmed).
+  // Condition B (excessive exchanges) fires independently once message_count >= threshold.
+  GOOGLE_R02_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // ⚠ PRODUCT CONFIRMATION REQUIRED: elapsed vs business-hours interpretation unknown.
+  GOOGLE_R02_CONDITION_A_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  GOOGLE_R02_INACTIVITY_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(1440),
+  // Daniel confirmed: 24 coverage hours (Mon–Fri 8 AM–10 PM, Sat–Sun 7 AM–10 PM, Pacific).
+  GOOGLE_R02_INACTIVITY_POLICY: z.enum(['ELAPSED', 'BUSINESS_HOURS']).default('BUSINESS_HOURS'),
+  // Daniel confirmed three individual emails triggers escalation recommendation.
+  GOOGLE_R02_MESSAGE_COUNT_THRESHOLD: z.coerce.number().int().min(2).max(100).default(3),
+  GOOGLE_R02_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  GOOGLE_R02_EVAL_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
+
+  // R-03: Reply Latency Outlier
+  // Measures how long the team takes to reply to inbound messages, per mailbox threshold.
+  // Mailbox-specific thresholds (service@/support@: 240 min = 4 biz hours; others: 1 biz day)
+  // are baked into the rule using the shared business calendar; no per-mailbox env var needed.
+  GOOGLE_R03_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Default threshold in business minutes for personal/other mailboxes (1 business day = 8.5h * 60).
+  // service@ and support@ override this to 240 in the rule.
+  GOOGLE_R03_DEFAULT_THRESHOLD_MINUTES: z.coerce.number().int().min(1).max(10_080).default(510),
+  GOOGLE_R03_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  GOOGLE_R03_EVAL_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
+
+  // R-04: After-Hours Backlog
+  // Detects inbound messages received during configured after-hours coverage windows
+  // that remain unanswered beyond graceMinutes after the next business opening.
+  // After-hours windows (Mon–Fri 4:30–10 PM, Sat–Sun 7 AM–10 PM Pacific) are
+  // baked into the rule; no per-window env var is needed.
+  GOOGLE_R04_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Minutes of grace after the next business opening before an OPEN alert fires.
+  // Daniel confirmed: 60 minutes (team must reply by 9:00 AM Pacific).
+  GOOGLE_R04_GRACE_MINUTES: z.coerce.number().int().min(1).max(480).default(60),
+  GOOGLE_R04_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  GOOGLE_R04_EVAL_INTERVAL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(900_000),
+
+  // Responsiveness mailbox allowlist: comma-separated addresses. Only mailboxes
+  // in this list are processed by the responsiveness worker. This is independent
+  // of the DB-level enabled flag — it is a second gate for controlled backfill
+  // and single-pass execution without touching production mailbox config.
+  // Default: the three approved content mailboxes.
+  GOOGLE_RESPONSIVENESS_MAILBOX_ALLOWLIST: z.string()
+    .default('service@trufinity.ca,support@trufinity.ca,billing@trufinity.ca')
+    .transform((v) => v.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)),
+
+  // Responsiveness notification delivery
+  // DISABLED (default): no emails are sent. TEST: sends exclusively to
+  // WORK_ITEM_NOTIFICATION_RECIPIENT. PRODUCTION: sends to the configured
+  // recipient list; requires explicit gate string + Daniel's priority approval.
+  //
+  // WARNING: Do NOT set TEST to edrice@trufinity.ca or casey@trufinity.ca.
+  //          The notifier hard-rejects a test recipient that overlaps production.
+  //
+  // Requires: migration 20261015130000_024_google_responsiveness_notifications.ts
+  GOOGLE_RESPONSIVENESS_NOTIFICATION_MODE: z.enum(['DISABLED', 'TEST', 'PRODUCTION']).default('DISABLED'),
+  // Comma-separated recipient email addresses for PRODUCTION mode.
+  GOOGLE_RESPONSIVENESS_NOTIFICATION_RECIPIENTS: z.string().default(''),
+  // Must be set to the exact string 'I_CONFIRM_PRODUCTION_NOTIFICATIONS' to
+  // enable PRODUCTION mode. Prevents accidental production delivery.
+  GOOGLE_RESPONSIVENESS_NOTIFICATION_PRODUCTION_GATE: z.string().default(''),
+  // Maximum delivery attempts per notification before marking FAILED.
+  GOOGLE_RESPONSIVENESS_NOTIFICATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(5),
+  // Lease window: SENDING rows older than this (minutes) are eligible for recovery.
+  GOOGLE_RESPONSIVENESS_NOTIFICATION_LEASE_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
 
   // Narrate layer: LLM writes prose describing detected_alerts findings only -
   // it never recomputes numbers (SPEC-BI-001 Section 4.1).

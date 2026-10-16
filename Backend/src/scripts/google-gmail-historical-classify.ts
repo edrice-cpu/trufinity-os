@@ -3,7 +3,7 @@ import { env } from '../config/env';
 import { isApprovedContentMailbox, normalizeMailboxAddress } from '../modules/google/gmail-policy';
 import { googleWorkspaceAuthService, type GoogleWorkspaceAuthService } from '../modules/google/google-auth.service';
 import { normalizeMessage } from '../modules/google/gmail-historical.service';
-import { AnthropicEmailClassifier, type ClassifiedEmailWithUsage } from '../modules/google/anthropic-email-classifier';
+import { AnthropicEmailClassifier, EmailClassifierError, type ClassifiedEmailWithUsage } from '../modules/google/anthropic-email-classifier';
 import { deriveEmailDecision, type EmailClassifier } from '../modules/google/email-classifier';
 import { KnexEmailClassificationRepository, computeResolutionDeadline, type ClassificationPersistenceInput, type PersistedClassification } from '../modules/google/classification.repository';
 import { SmtpWorkItemNotifier, type WorkItemNotifier, type WorkItemNotificationInput } from '../modules/google/work-item-notifier';
@@ -14,6 +14,7 @@ const HARD_CALL_CAP = 500;
 const MAX_RANGE_DAYS = 90;
 const DEFAULT_DELAY_MS = 200;
 const MAX_CLASSIFICATION_BODY_LENGTH = 20_000;
+export const PROVIDER_HTTP_400_CIRCUIT_THRESHOLD = 3;
 
 export interface HistoricalClassifyArgs {
   mailbox: string;
@@ -23,6 +24,7 @@ export interface HistoricalClassifyArgs {
   batchLimit: number;
   maxCalls: number;
   delayMs: number;
+  noNotifications: boolean;
 }
 
 export interface HistoricalClassifyProgress {
@@ -43,12 +45,18 @@ export interface HistoricalClassifyProgress {
   outputTokens: number;
   gmailFetchAttempts: number;
   gmailFetchFailures: number;
+  normalizationFailures: number;
+  anthropicFailures: number;
+  persistenceFailures: number;
+  failureCategories: Record<string, number>;
   notificationsSent: number;
   notificationFailures: number;
   elapsedMs: number;
   stoppedBySignal: boolean;
   stoppedByBatchLimit: boolean;
   stoppedByCallCap: boolean;
+  consecutiveProviderHttp400: number;
+  stoppedByProviderCircuitBreaker: boolean;
 }
 
 export function emptyProgress(): HistoricalClassifyProgress {
@@ -58,10 +66,55 @@ export function emptyProgress(): HistoricalClassifyProgress {
     attempted: 0, succeeded: 0, failed: 0, none: 0, escalation: 0, reviewRequired: 0,
     inputTokens: 0, outputTokens: 0,
     gmailFetchAttempts: 0, gmailFetchFailures: 0,
+    normalizationFailures: 0, anthropicFailures: 0, persistenceFailures: 0,
+    failureCategories: {},
     notificationsSent: 0, notificationFailures: 0,
     elapsedMs: 0,
     stoppedBySignal: false, stoppedByBatchLimit: false, stoppedByCallCap: false,
+    consecutiveProviderHttp400: 0, stoppedByProviderCircuitBreaker: false,
   };
+}
+
+export type ClassificationDiagnosticStage = 'gmail_token' | 'gmail_fetch' | 'normalization' | 'anthropic' | 'persistence';
+export interface ClassificationDiagnostic {
+  ordinal: number;
+  stage: ClassificationDiagnosticStage;
+  category: string;
+  status: number | null;
+  errorClass: string;
+  providerType?: string | null;
+  providerCode?: string | null;
+  validationReason?: string | null;
+  parameterName?: string | null;
+  numericLimit?: number | null;
+}
+
+/** Extracts only safe provider metadata; never reads error messages or payloads. */
+export function classifyGmailFetchError(error: unknown): Omit<ClassificationDiagnostic, 'ordinal' | 'stage'> {
+  if (!error || typeof error !== 'object') return { category: 'unknown', status: null, errorClass: 'UnknownError' };
+  const candidate = error as { response?: { status?: unknown }; status?: unknown; code?: unknown };
+  const status = typeof candidate.response?.status === 'number' ? candidate.response.status
+    : typeof candidate.status === 'number' ? candidate.status : null;
+  const code = typeof candidate.code === 'string' ? candidate.code : '';
+  const errorClass = error instanceof Error ? error.name : 'ProviderError';
+  const providerName = typeof (candidate as { name?: unknown }).name === 'string' ? (candidate as { name: string }).name : '';
+  const safeMessage = error instanceof Error ? error.message.toLowerCase() : '';
+  if (status === 401) return { category: 'authentication', status, errorClass };
+  if (status === 403) return { category: 'permission_or_scope', status, errorClass };
+  if (status === 404) return { category: 'message_not_found', status, errorClass };
+  if (status === 408 || status === 429) return { category: 'rate_limited_or_timeout', status, errorClass };
+  if (status !== null && status >= 500) return { category: 'provider_server', status, errorClass };
+  if (error instanceof TypeError || ['ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)) {
+    return { category: 'network', status, errorClass };
+  }
+  // Match only known authentication markers; never emit or retain the message.
+  // Also catches google-auth-library wrapper errors (plain Error wrapping a GaxiosError
+  // from the token endpoint) which lose the GaxiosError class but retain auth keywords.
+  if (errorClass === 'GaxiosError' || providerName === 'GaxiosError' ||
+      /invalid_grant|unauthorized_client|authentication failed|could not refresh access token|error fetching access token|refresh access token|token has been expired|token has been revoked/.test(safeMessage)) {
+    return { category: 'authentication', status, errorClass };
+  }
+  return { category: 'provider_unknown', status, errorClass };
 }
 
 export function parseArgs(argv: string[]): HistoricalClassifyArgs {
@@ -89,6 +142,7 @@ export function parseArgs(argv: string[]): HistoricalClassifyArgs {
   if (to > new Date()) throw new Error('--to must not be in the future.');
 
   const dryRun = argv.includes('--dry-run');
+  const noNotifications = argv.includes('--no-notifications');
 
   const batchLimitRaw = get('--batch-limit');
   const batchLimit = batchLimitRaw ? Number(batchLimitRaw) : HARD_BATCH_LIMIT;
@@ -108,7 +162,7 @@ export function parseArgs(argv: string[]): HistoricalClassifyArgs {
     throw new Error('--delay-ms must be 0-10000.');
   }
 
-  return { mailbox, from, to, dryRun, batchLimit, maxCalls, delayMs };
+  return { mailbox, from, to, dryRun, batchLimit, maxCalls, delayMs, noNotifications };
 }
 
 interface EligibleRow {
@@ -152,7 +206,7 @@ export async function queryEligibleMessages(
           AND c.model_name = ?
           AND c.prompt_version = ?
       )
-    ORDER BY r.internal_date ASC
+    ORDER BY r.internal_date ASC, r.provider_message_id ASC
     LIMIT ?
   `, [
     mailboxRow.id, args.from.toISOString(), args.to.toISOString(),
@@ -250,6 +304,16 @@ export interface HistoricalClassifyDeps {
   repository: KnexEmailClassificationRepository;
   notifier: WorkItemNotifier;
   waitFn: (ms: number) => Promise<void>;
+  diagnostic?: (event: ClassificationDiagnostic) => void;
+}
+
+function safeErrorClass(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : 'UnknownError';
+}
+
+function recordDiagnostic(progress: HistoricalClassifyProgress, deps: HistoricalClassifyDeps, event: ClassificationDiagnostic): void {
+  progress.failureCategories[event.category] = (progress.failureCategories[event.category] ?? 0) + 1;
+  deps.diagnostic?.(event);
 }
 
 export async function runClassify(
@@ -260,7 +324,7 @@ export async function runClassify(
   const progress = emptyProgress();
   const start = Date.now();
 
-  if (deps.notifier.recoverPendingNotifications) {
+  if (!args.noNotifications && deps.notifier.recoverPendingNotifications) {
     try {
       progress.notificationsSent += await deps.notifier.recoverPendingNotifications();
     } catch {
@@ -279,19 +343,65 @@ export async function runClassify(
 
   const authorization = deps.authService.getGmailAuthorization(args.mailbox);
 
-  for (const row of eligible) {
+  for (const [index, row] of eligible.entries()) {
     if (signalRef.stopped) { progress.stoppedBySignal = true; break; }
     if (progress.attempted >= args.maxCalls) { progress.stoppedByCallCap = true; break; }
     if (progress.succeeded + progress.failed >= args.batchLimit) { progress.stoppedByBatchLimit = true; break; }
 
+    // Stage: gmail_token — explicit token acquisition before the message fetch.
+    // Separates token/delegation failures (authentication category) from
+    // message retrieval failures; google-auth-library caches the token after
+    // the first authorize() so subsequent rows in the same batch skip the
+    // network round-trip to the token endpoint.
+    try {
+      if (typeof authorization.auth.authorize === 'function') {
+        await authorization.auth.authorize();
+      }
+    } catch (tokenError) {
+      progress.gmailFetchFailures += 1;
+      progress.failed += 1;
+      recordDiagnostic(progress, deps, { ordinal: index + 1, stage: 'gmail_token', ...classifyGmailFetchError(tokenError) });
+      if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+      continue;
+    }
+
+    let raw: { data?: unknown };
     try {
       progress.gmailFetchAttempts += 1;
-      const raw = await authorization.client.users.messages.get({
+      raw = await authorization.client.users.messages.get({
         userId: 'me', id: row.provider_message_id, format: 'full',
       });
-      const message = normalizeMessage(raw.data);
-      if (!message) { progress.gmailFetchFailures += 1; continue; }
+    } catch (error) {
+      progress.gmailFetchFailures += 1;
+      progress.failed += 1;
+      recordDiagnostic(progress, deps, { ordinal: index + 1, stage: 'gmail_fetch', ...classifyGmailFetchError(error) });
+      if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+      continue;
+    }
 
+    let message: ReturnType<typeof normalizeMessage>;
+    try {
+      message = normalizeMessage(raw.data);
+    } catch (error) {
+      progress.failed += 1;
+      progress.normalizationFailures += 1;
+      recordDiagnostic(progress, deps, {
+        ordinal: index + 1, stage: 'normalization', category: 'invalid_message_response', status: null, errorClass: safeErrorClass(error),
+      });
+      if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+      continue;
+    }
+    if (!message) {
+      progress.gmailFetchFailures += 1;
+      progress.normalizationFailures += 1;
+      recordDiagnostic(progress, deps, {
+        ordinal: index + 1, stage: 'normalization', category: 'invalid_message_response', status: null, errorClass: 'InvalidMessageResponse',
+      });
+      if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+      continue;
+    }
+
+    try {
       const sender = extractSender(message.payload);
       if (!sender || sender === args.mailbox) { progress.skippedOutbound += 1; continue; }
 
@@ -302,14 +412,47 @@ export async function runClassify(
 
       progress.attempted += 1;
       let classification;
-      if (typeof deps.classifier.classifyWithUsage === 'function') {
-        const classified = await deps.classifier.classifyWithUsage({ subject, bodyText });
-        classification = classified.classification;
-        progress.inputTokens += classified.usage.inputTokens;
-        progress.outputTokens += classified.usage.outputTokens;
-      } else {
-        classification = await deps.classifier.classify({ subject, bodyText });
+      try {
+        if (typeof deps.classifier.classifyWithUsage === 'function') {
+          const classified = await deps.classifier.classifyWithUsage({ subject, bodyText });
+          classification = classified.classification;
+          progress.inputTokens += classified.usage.inputTokens;
+          progress.outputTokens += classified.usage.outputTokens;
+        } else {
+          classification = await deps.classifier.classify({ subject, bodyText });
+        }
+      } catch (error) {
+        progress.failed += 1;
+        progress.anthropicFailures += 1;
+        // EmailClassifierError carries a structured category from the classifier; use it
+        // directly rather than passing through the Gmail/gaxios-oriented classifyGmailFetchError,
+        // which would always map it to provider_unknown.
+        const diag = error instanceof EmailClassifierError
+          ? {
+            category: error.category, status: error.providerStatus, errorClass: 'EmailClassifierError',
+            providerType: error.providerDiagnostic.providerType,
+            providerCode: error.providerDiagnostic.providerCode,
+            validationReason: error.providerDiagnostic.validationReason,
+            parameterName: error.providerDiagnostic.parameterName,
+            numericLimit: error.providerDiagnostic.numericLimit,
+          }
+          : classifyGmailFetchError(error);
+        recordDiagnostic(progress, deps, { ordinal: index + 1, stage: 'anthropic', ...diag });
+        // Any HTTP 400 observed at the Anthropic stage is request/provider
+        // validation failure, even if an SDK wrapper obscures the category.
+        if (diag.status === 400) {
+          progress.consecutiveProviderHttp400 += 1;
+        } else {
+          progress.consecutiveProviderHttp400 = 0;
+        }
+        if (progress.consecutiveProviderHttp400 >= PROVIDER_HTTP_400_CIRCUIT_THRESHOLD) {
+          progress.stoppedByProviderCircuitBreaker = true;
+          break;
+        }
+        if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+        continue;
       }
+      progress.consecutiveProviderHttp400 = 0;
       const decision = deriveEmailDecision(classification, env.GMAIL_CLASSIFIER_CONFIDENCE_THRESHOLD!);
 
       const classifiedAt = new Date();
@@ -328,7 +471,18 @@ export async function runClassify(
         idempotencyKey: `gmail:${row.mailbox_address}:${row.provider_message_id}:${env.GMAIL_CLASSIFIER_PROVIDER}:${env.GMAIL_CLASSIFIER_MODEL}:${env.GMAIL_CLASSIFIER_PROMPT_VERSION}`,
       };
 
-      const persisted: PersistedClassification = await deps.repository.persist(persistInput);
+      let persisted: PersistedClassification;
+      try {
+        persisted = await deps.repository.persist(persistInput);
+      } catch (error) {
+        progress.failed += 1;
+        progress.persistenceFailures += 1;
+        recordDiagnostic(progress, deps, {
+          ordinal: index + 1, stage: 'persistence', category: 'database_persistence_failed', status: null, errorClass: safeErrorClass(error),
+        });
+        if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
+        continue;
+      }
 
       if (persisted.duplicate) { progress.skippedAlreadyClassified += 1; }
       else { progress.succeeded += 1; }
@@ -337,7 +491,7 @@ export async function runClassify(
       else if (decision.state === 'ESCALATION') progress.escalation += 1;
       else progress.reviewRequired += 1;
 
-      if (persisted.workItemId && !persisted.duplicate) {
+      if (!args.noNotifications && persisted.workItemId && !persisted.duplicate) {
         const workType = decision.state as 'ESCALATION' | 'REVIEW_REQUIRED';
         const resolutionDeadline = computeResolutionDeadline(workType, classifiedAt);
         const notifInput: WorkItemNotificationInput = {
@@ -365,10 +519,13 @@ export async function runClassify(
           progress.notificationFailures += 1;
         }
       }
-    } catch {
+    } catch (error) {
       progress.failed += 1;
+      progress.normalizationFailures += 1;
+      recordDiagnostic(progress, deps, {
+        ordinal: index + 1, stage: 'normalization', category: 'message_processing_failed', status: null, errorClass: safeErrorClass(error),
+      });
     }
-
     if (args.delayMs > 0 && !signalRef.stopped) await deps.waitFn(args.delayMs);
   }
 
@@ -385,6 +542,10 @@ export function printProgress(progress: HistoricalClassifyProgress, dryRun: bool
     console.log(`  Skipped (outbound):    ${progress.skippedOutbound}`);
     console.log(`  Gmail fetches:         ${progress.gmailFetchAttempts}`);
     console.log(`  Gmail fetch failures:  ${progress.gmailFetchFailures}`);
+    console.log(`  Normalization failures: ${progress.normalizationFailures}`);
+    console.log(`  Anthropic failures:     ${progress.anthropicFailures}`);
+    console.log(`  Persistence failures:   ${progress.persistenceFailures}`);
+    console.log(`  Failure categories:     ${JSON.stringify(progress.failureCategories)}`);
     console.log(`  Attempted:             ${progress.attempted}`);
     console.log(`  Succeeded:             ${progress.succeeded}`);
     console.log(`  Failed:                ${progress.failed}`);
@@ -400,10 +561,19 @@ export function printProgress(progress: HistoricalClassifyProgress, dryRun: bool
   if (progress.stoppedBySignal) console.log(`  STOPPED by SIGINT`);
   if (progress.stoppedByBatchLimit) console.log(`  STOPPED by batch limit`);
   if (progress.stoppedByCallCap) console.log(`  STOPPED by call cap`);
+  if (progress.stoppedByProviderCircuitBreaker) {
+    console.log(`  STOPPED by provider HTTP 400 circuit breaker (${PROVIDER_HTTP_400_CIRCUIT_THRESHOLD} consecutive failures)`);
+  }
   console.log('');
 }
 
-function createDefaultDeps(): HistoricalClassifyDeps {
+const suppressedNotifier: WorkItemNotifier = {
+  sendNotification: async () => false,
+  hasNotificationBeenSent: async () => false,
+  recoverPendingNotifications: async () => 0,
+};
+
+function createDefaultDeps(args: HistoricalClassifyArgs): HistoricalClassifyDeps {
   const Anthropic = require('@anthropic-ai/sdk').default;
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: env.GMAIL_CLASSIFIER_TIMEOUT_MS });
   return {
@@ -416,8 +586,11 @@ function createDefaultDeps(): HistoricalClassifyDeps {
       promptVersion: env.GMAIL_CLASSIFIER_PROMPT_VERSION,
     }),
     repository: new KnexEmailClassificationRepository(),
-    notifier: new SmtpWorkItemNotifier(),
+    notifier: args.noNotifications ? suppressedNotifier : new SmtpWorkItemNotifier(),
     waitFn: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+    diagnostic: (event) => {
+      console.warn(`[historical-classify] row=${event.ordinal} stage=${event.stage} category=${event.category} status=${event.status ?? 'none'} error=${event.errorClass} type=${event.providerType ?? 'none'} code=${event.providerCode ?? 'none'} reason=${event.validationReason ?? 'none'} parameter=${event.parameterName ?? 'none'} limit=${event.numericLimit ?? 'none'}`);
+    },
   };
 }
 
@@ -437,14 +610,18 @@ async function main(): Promise<void> {
     console.log(`Batch limit: ${args.batchLimit}`);
     console.log(`Max calls:   ${args.maxCalls}`);
     console.log(`Delay:       ${args.delayMs}ms`);
+    console.log(`Notifications: ${args.noNotifications ? 'DISABLED (--no-notifications)' : 'ENABLED'}`);
 
     if (args.dryRun) {
       const progress = await runDryRun(args);
       printProgress(progress, true);
     } else {
-      const deps = createDefaultDeps();
+      const deps = createDefaultDeps(args);
       const progress = await runClassify(args, deps, signalRef);
       printProgress(progress, false);
+      // A circuit-breaker stop is an incomplete run. Preserve successful rows,
+      // but make the process non-zero so wrappers cannot mark the window done.
+      if (progress.stoppedByProviderCircuitBreaker) process.exitCode = 2;
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Historical classification failed.');
