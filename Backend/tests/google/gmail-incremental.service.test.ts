@@ -382,13 +382,26 @@ describe('GmailIncrementalSyncService', () => {
       const { KnexGmailHistoricalRepository } = jest.requireActual('../../src/modules/google/gmail-historical.repository') as typeof import('../../src/modules/google/gmail-historical.repository');
       const rows = new Map<string, any>();
       const inserts: any[] = [];
-      const trx = (table: string) => ({
+      const trx = ((table: string) => {
+        if (table !== 'raw_gmail_messages') {
+          const query: any = {
+            select: () => query,
+            where: () => query,
+            then: (resolve: (value: unknown[]) => unknown) => Promise.resolve(resolve([])),
+            delete: async () => 1,
+            insert: () => ({ onConflict: () => ({ merge: async () => 1 }) }),
+          };
+          return query;
+        }
+        return {
         where: (filter: any) => ({
           first: async () => rows.get(filter.provider_message_id),
           update: async () => 1,
         }),
         insert: async (row: any) => { if (table === 'raw_gmail_messages') { rows.set(row.provider_message_id, row); inserts.push(row); } },
-      });
+        };
+      }) as any;
+      trx.fn = { now: () => 'NOW()' };
       const repository = new KnexGmailHistoricalRepository({ transaction: async (work: any) => work(trx) } as any);
       (gmailHistoricalRepository.commitBatch as any).mockImplementation(repository.commitBatch.bind(repository));
       mockHistoryList.mockImplementation(async ({ pageToken }: any) => pageToken ? page('second') : { ...page('first'), data: { ...page('first').data, nextPageToken: 'next' } });

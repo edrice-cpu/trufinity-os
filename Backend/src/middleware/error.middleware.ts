@@ -11,9 +11,16 @@ export const errorHandler = (
   // None of this is forwarded to the HTTP client in any environment.
   logger.error(`Error: ${err.message}`, { stack: err.stack });
 
-  res.status(500).json({
+  const statusCode = typeof (err as Error & { statusCode?: unknown }).statusCode === 'number'
+    ? (err as Error & { statusCode: number }).statusCode : 500;
+  const code = typeof (err as Error & { code?: unknown }).code === 'string'
+    ? (err as Error & { code: string }).code : undefined;
+  res.status(statusCode).json({
     status: 'error',
-    message: 'Internal Server Error',
+    ...(code !== undefined ? { code } : {}),
+    message: statusCode === 503 && code === 'R05_BACKFILL_INCOMPLETE'
+      ? 'R-05 aging queue is temporarily unavailable while thread state backfill completes.'
+      : 'Internal Server Error',
   });
 };
 

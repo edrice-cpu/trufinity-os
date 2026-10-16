@@ -1,0 +1,23 @@
+﻿# TruFinity Backend AI Context
+
+- Repository: `Backend`; use the currently checked-out branch. Never switch branches.
+- Treat the local PostgreSQL connection as shared production. Never connect, query, migrate, seed, or mutate it without explicit authorization.
+- Do not call Gmail, Google Workspace, ServiceTitan, QuickBooks, SMTP, AWS, or other external services during local work unless explicitly authorized.
+- Do not start live workers, deploy, run PM2/AWS operations, or edit `.env` files unless explicitly authorized.
+- Do not commit, push, merge, reset, or otherwise alter Git state unless explicitly authorized.
+- Keep changes scoped to the requested files; do not modify frontend or unrelated integrations.
+- Read the smallest relevant set of files. Prefer mocked unit tests and static inspection.
+- Preserve Gmail privacy: approved content mailboxes are service@trufinity.ca, support@trufinity.ca, and billing@trufinity.ca; careers@trufinity.ca is metadata-only.
+- Never expand Gmail content access or expose message bodies, subjects, snippets, HTML, or attachments in logs or responses.
+- Gmail ingestion permissions and dashboard/reporting authorization are separate concerns.
+- Google Workspace dashboard access is client-only through server-authenticated identity and `GOOGLE_DASHBOARD_ALLOWED_EMAILS`; fail closed when authorization is missing or invalid.
+- Confirmed Google SLA facts: Pacific business hours are Mon–Fri 08:00–16:30; after-hours coverage is Mon–Fri 16:30–22:00 and Sat–Sun 07:00–22:00.
+- Confirmed Google thresholds: R-01 service/support unanswered target is 240 business minutes; R-03 service/support reply target is 240 business minutes and the default other-mailbox target is 510 business minutes; R-04 grace is 60 minutes.
+- Treat R-02 inactivity interpretation, R-05 threshold details, and cross-rule/notification priority as pending approval unless explicitly confirmed.
+- Google responsiveness features remain disabled until migrations, configuration, tests, and business approvals are complete.
+- Google Workspace TEST notifications must go exclusively to `WORK_ITEM_NOTIFICATION_RECIPIENT`; never send test mail to production recipients.
+- ServiceTitan Telecom V2/V3, abandoned-call handling, voicemail callback behavior, and the Edrice transcription choice must remain labeled reported or pending until documented approval/evidence exists.
+- Never log API keys, tokens, passwords, credentials, raw provider responses, or customer content.
+- Distinguish verified local evidence, reported results, assumptions, and client-approved business decisions.
+- Before implementation, inspect relevant existing patterns and document migration/deployment prerequisites.
+- After code changes, run relevant mocked tests and TypeScript compilation only; report exact results and remaining blockers.

@@ -26,10 +26,20 @@ describe('email classifier domain contract', () => {
     expect(() => parseEmailClassification({ label: 'none', confidence, reason: 'ok' })).toThrow();
   });
 
-  test('rejects invalid reasons', () => {
+  test('rejects empty reason after normalization', () => {
     expect(() => parseEmailClassification({ label: 'none', ...base, reason: '' })).toThrow();
-    expect(() => parseEmailClassification({ label: 'none', ...base, reason: 'two\nlines' })).toThrow();
-    expect(() => parseEmailClassification({ label: 'none', ...base, reason: 'x'.repeat(EMAIL_CLASSIFICATION_MAX_REASON_LENGTH + 1) })).toThrow();
+  });
+
+  test('normalizes multiline reasons to a single line', () => {
+    const result = parseEmailClassification({ label: 'none', ...base, reason: 'two\nlines' });
+    expect(result.reason).toBe('two lines');
+    expect(result.reason).not.toMatch(/[\r\n]/);
+  });
+
+  test('truncates over-length reasons to the maximum', () => {
+    const long = 'x'.repeat(EMAIL_CLASSIFICATION_MAX_REASON_LENGTH + 10);
+    const result = parseEmailClassification({ label: 'none', ...base, reason: long });
+    expect(result.reason.length).toBe(EMAIL_CLASSIFICATION_MAX_REASON_LENGTH);
   });
 
   test('derives escalation, review, and none decisions', () => {

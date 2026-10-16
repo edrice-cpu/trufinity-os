@@ -9,7 +9,10 @@ import {
   parseEmailClassification,
 } from './email-classifier';
 
-export const EMAIL_CLASSIFIER_SYSTEM_PROMPT = `Classify the supplied email using exactly one of these labels: complaint, billing_dispute, cancellation_intent, legal_or_regulatory_threat, damage_claim, escalation_request, none.
+export const EMAIL_CLASSIFIER_SYSTEM_PROMPT = `Classify the supplied email using exactly one of these labels: complaint, billing_dispute, cancellation_intent, legal_or_regulatory_threat, damage_claim, escalation_request, emergency, none.
+
+emergency: Use ONLY for ongoing or imminent safety hazards or property damage (e.g. active gas leak, flooding, fire, structural collapse in progress). Do NOT use for ordinary complaints, billing disputes, service-quality concerns, or general urgency requests, even if the customer sounds angry or urgent.
+
 Return only valid JSON with exactly these fields: label, confidence, reason.
 Confidence must be a number from 0 to 1. Reason must be one concise single-line explanation.
 Do not add fields, recommendations, calculations, identifiers, routing, ownership, SLA, or customer data.`;
@@ -42,6 +45,14 @@ export interface ClassifierTokenUsage {
   outputTokens: number;
 }
 
+export interface ProviderDiagnostic {
+  providerType: string | null;
+  providerCode: string | null;
+  validationReason: string | null;
+  parameterName: string | null;
+  numericLimit: number | null;
+}
+
 export interface ClassifiedEmailWithUsage {
   classification: EmailClassification;
   usage: ClassifierTokenUsage;
@@ -53,6 +64,32 @@ export interface AnthropicEmailClassifierConfig {
   maxRetries: number;
   promptVersion: string;
 }
+
+export interface ClassifierConfiguration {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  apiKey: string;
+  confidenceThreshold: number | undefined;
+}
+
+/**
+ * Validate provider configuration at the boundary where the classifier is
+ * constructed.  Disabled classification intentionally skips all checks so a
+ * deployment can start without any provider credentials.  Error text names
+ * configuration keys only and never includes credential values.
+ */
+export const validateClassifierConfiguration = (config: ClassifierConfiguration): void => {
+  if (!config.enabled) return;
+  const missing: string[] = [];
+  if (config.provider !== 'anthropic') missing.push('GMAIL_CLASSIFIER_PROVIDER (must be anthropic)');
+  if (!config.model.trim()) missing.push('GMAIL_CLASSIFIER_MODEL');
+  if (!config.apiKey.trim()) missing.push('ANTHROPIC_API_KEY');
+  if (config.confidenceThreshold === undefined) missing.push('GMAIL_CLASSIFIER_CONFIDENCE_THRESHOLD');
+  if (missing.length > 0) {
+    throw new Error(`Gmail classifier configuration is incomplete: ${missing.join(', ')}`);
+  }
+};
 
 /**
  * Safe diagnostic category for a classifier failure. Captures only non-content
@@ -86,15 +123,24 @@ export type EmailClassifierFailureCategory =
 export class EmailClassifierError extends Error {
   public readonly category: EmailClassifierFailureCategory;
   public readonly providerStatus: number | null;
+  public readonly providerDiagnostic: ProviderDiagnostic;
   constructor(
     message: string,
     category: EmailClassifierFailureCategory = 'provider_unknown',
     providerStatus: number | null = null,
+    providerDiagnostic: Partial<ProviderDiagnostic> = {},
   ) {
     super(message);
     this.name = 'EmailClassifierError';
     this.category = category;
     this.providerStatus = providerStatus;
+    this.providerDiagnostic = {
+      providerType: providerDiagnostic.providerType ?? null,
+      providerCode: providerDiagnostic.providerCode ?? null,
+      validationReason: providerDiagnostic.validationReason ?? null,
+      parameterName: providerDiagnostic.parameterName ?? null,
+      numericLimit: providerDiagnostic.numericLimit ?? null,
+    };
   }
 }
 
@@ -116,22 +162,70 @@ function wait(milliseconds: number): Promise<void> {
  * Extracts safe, non-content diagnostic fields from a provider SDK error.
  * Never reads response body text, error message content, or request fields.
  */
-function categorizeProviderError(error: unknown): { category: EmailClassifierFailureCategory; providerStatus: number | null } {
-  if (!error || typeof error !== 'object') return { category: 'provider_unknown', providerStatus: null };
-  const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } };
+function safeProviderToken(value: unknown): string | null {
+  return typeof value === 'string' && /^[a-zA-Z0-9_.-]{1,80}$/.test(value) ? value : null;
+}
+
+function safeValidationReason(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const reason = value.toLowerCase();
+  if (/schema|json schema|structured output/.test(reason)) return 'invalid_json_schema';
+  if (/context|too many tokens|token limit|max[_ ]tokens|maximum.*token/.test(reason)) return 'context_or_token_limit';
+  if (/model|model.*not found|unknown model/.test(reason)) return 'invalid_model';
+  if (/content|message|input|prompt/.test(reason)) return 'invalid_input';
+  if (/parameter|request|body|format/.test(reason)) return 'invalid_request';
+  return 'provider_validation_failed';
+}
+
+function safeParameterName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/\b(max_tokens|model|output_config(?:\.format(?:\.schema)?)?|messages(?:\.\d+)?\.content)\b/);
+  return match?.[1] ?? null;
+}
+
+function safeNumericLimit(value: unknown, parameterName: string | null): number | null {
+  if (typeof value !== 'string' || parameterName !== 'max_tokens') return null;
+  const match = value.match(/(?:max_tokens\D{0,30}(\d{1,6})|(\d{1,6})\D{0,30}max_tokens)/i);
+  const numeric = match ? Number(match[1] ?? match[2]) : NaN;
+  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 1_000_000 ? numeric : null;
+}
+
+function categorizeProviderError(error: unknown): { category: EmailClassifierFailureCategory; providerStatus: number | null; providerDiagnostic: ProviderDiagnostic } {
+  const empty: ProviderDiagnostic = { providerType: null, providerCode: null, validationReason: null, parameterName: null, numericLimit: null };
+  if (!error || typeof error !== 'object') return { category: 'provider_unknown', providerStatus: null, providerDiagnostic: empty };
+  const candidate = error as { code?: unknown; type?: unknown; status?: unknown; error?: unknown; response?: { status?: unknown; data?: unknown } };
+  const envelope = candidate.error && typeof candidate.error === 'object' ? candidate.error as { type?: unknown; code?: unknown; message?: unknown; error?: unknown } : undefined;
+  // Anthropic SDK APIError.error is the full response envelope:
+  // { type: 'error', error: { type: 'invalid_request_error', message: '...' } }.
+  // Older wrappers may expose the inner object directly, so support both shapes.
+  const nested = envelope?.error && typeof envelope.error === 'object'
+    ? envelope.error as { type?: unknown; code?: unknown; message?: unknown }
+    : envelope;
+  const responseError = candidate.response?.data && typeof candidate.response.data === 'object'
+    ? (candidate.response.data as { error?: { type?: unknown; code?: unknown; message?: unknown } }).error
+    : undefined;
+  const providerMessage = nested?.message ?? responseError?.message;
+  const parameterName = safeParameterName(providerMessage);
+  const providerDiagnostic: ProviderDiagnostic = {
+    providerType: safeProviderToken(nested?.type ?? responseError?.type ?? candidate.type),
+    providerCode: safeProviderToken(nested?.code ?? responseError?.code ?? candidate.code),
+    validationReason: safeValidationReason(providerMessage),
+    parameterName,
+    numericLimit: safeNumericLimit(providerMessage, parameterName),
+  };
   const status: number | null =
     typeof candidate.response?.status === 'number' ? candidate.response.status :
     typeof candidate.status === 'number' ? candidate.status :
     null;
   const code = typeof candidate.code === 'string' ? candidate.code : null;
-  if (status === 401 || status === 403) return { category: 'provider_auth_error', providerStatus: status };
-  if (status === 404) return { category: 'provider_model_error', providerStatus: status };
-  if (status === 408 || code === 'ETIMEDOUT') return { category: 'provider_timeout', providerStatus: status };
-  if (status === 429) return { category: 'provider_rate_limit', providerStatus: status };
-  if (status !== null && status >= 500) return { category: 'provider_server_error', providerStatus: status };
-  if (status !== null) return { category: 'provider_http_error', providerStatus: status };
-  if (code === 'ECONNRESET' || code === 'EAI_AGAIN') return { category: 'provider_network_error', providerStatus: null };
-  return { category: 'provider_unknown', providerStatus: null };
+  if (status === 401 || status === 403) return { category: 'provider_auth_error', providerStatus: status, providerDiagnostic };
+  if (status === 404) return { category: 'provider_model_error', providerStatus: status, providerDiagnostic };
+  if (status === 408 || code === 'ETIMEDOUT') return { category: 'provider_timeout', providerStatus: status, providerDiagnostic };
+  if (status === 429) return { category: 'provider_rate_limit', providerStatus: status, providerDiagnostic };
+  if (status !== null && status >= 500) return { category: 'provider_server_error', providerStatus: status, providerDiagnostic };
+  if (status !== null) return { category: 'provider_http_error', providerStatus: status, providerDiagnostic };
+  if (code === 'ECONNRESET' || code === 'EAI_AGAIN') return { category: 'provider_network_error', providerStatus: null, providerDiagnostic };
+  return { category: 'provider_unknown', providerStatus: null, providerDiagnostic };
 }
 
 function buildPrompt(input: EmailClassifierInput): string {
@@ -266,8 +360,8 @@ export class AnthropicEmailClassifier implements EmailClassifier {
           await this.waitFn(100 * 2 ** attempt);
           continue;
         }
-        const { category, providerStatus } = categorizeProviderError(error);
-        throw new EmailClassifierError('Email classifier provider request failed.', category, providerStatus);
+        const { category, providerStatus, providerDiagnostic } = categorizeProviderError(error);
+        throw new EmailClassifierError('Email classifier provider request failed.', category, providerStatus, providerDiagnostic);
       }
     }
   }
@@ -280,7 +374,14 @@ export class DisabledEmailClassifier implements EmailClassifier {
 }
 
 export function createConfiguredEmailClassifier(): EmailClassifier {
-  if (!env.GMAIL_CLASSIFIER_ENABLED || env.GMAIL_CLASSIFIER_PROVIDER !== 'anthropic' || !env.GMAIL_CLASSIFIER_MODEL || !env.ANTHROPIC_API_KEY || env.GMAIL_CLASSIFIER_CONFIDENCE_THRESHOLD === undefined) {
+  validateClassifierConfiguration({
+    enabled: env.GMAIL_CLASSIFIER_ENABLED,
+    provider: env.GMAIL_CLASSIFIER_PROVIDER,
+    model: env.GMAIL_CLASSIFIER_MODEL,
+    apiKey: env.ANTHROPIC_API_KEY,
+    confidenceThreshold: env.GMAIL_CLASSIFIER_CONFIDENCE_THRESHOLD,
+  });
+  if (!env.GMAIL_CLASSIFIER_ENABLED) {
     return new DisabledEmailClassifier();
   }
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: env.GMAIL_CLASSIFIER_TIMEOUT_MS }) as unknown as AnthropicMessagesClient;
