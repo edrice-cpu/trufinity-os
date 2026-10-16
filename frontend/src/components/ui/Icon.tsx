@@ -33,6 +33,24 @@ const paths: Record<string, ReactNode> = {
       <path d="M12 8v5M12 16h.01" />
     </>
   ),
+  "alert-triangle": (
+    <>
+      <path d="M10.3 3.3 2 20h20L13.7 3.3a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 10v4M12 17h.01" />
+    </>
+  ),
+  "x-circle": (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6M15 9l-6 6" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-4M12 8h.01" />
+    </>
+  ),
   flag: (
     <>
       <path d="M5 21V4M5 4h13l-3 4 3 4H5" />
