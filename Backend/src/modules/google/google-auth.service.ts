@@ -112,6 +112,8 @@ const defaultFactory: GoogleAuthFactory = {
 
 export interface GmailAuthorizationContext {
   client: GoogleGmailClient;
+  /** The underlying JWT auth object; supports explicit authorize() to force token acquisition. */
+  auth: { authorize?: () => Promise<void> };
   mailbox: GmailMailboxConfig;
   subject: string;
   scope: typeof GMAIL_METADATA_SCOPE | typeof GMAIL_READONLY_SCOPE;
@@ -134,6 +136,7 @@ export class GoogleWorkspaceAuthService {
     const auth = this.createJwt(mailbox.normalizedAddress, [scope]);
     return {
       client: this.factory.createGmailClient(auth),
+      auth: auth as { authorize?: () => Promise<void> },
       mailbox,
       subject: mailbox.normalizedAddress,
       scope,

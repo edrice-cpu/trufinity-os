@@ -71,13 +71,24 @@ describe('KnexGmailHistoricalRepository.commitBatch tombstones', () => {
 
   function fake(currentRow: Record<string, unknown> | undefined) {
     const inserts: Record<string, unknown>[] = [];
-    const trx = ((table: string) => ({
-      where: () => ({
-        first: async () => currentRow,
-        update: async () => 1,
-      }),
-      insert: async (row: Record<string, unknown>) => { if (table === 'raw_gmail_messages') inserts.push(row); },
-    })) as unknown as import('knex').Knex.Transaction;
+    const trx = ((table: string) => {
+      if (table === 'raw_gmail_messages') return {
+        where: () => ({
+          first: async () => currentRow,
+          update: async () => 1,
+        }),
+        insert: async (row: Record<string, unknown>) => { inserts.push(row); },
+      };
+      const query: Record<string, any> = {
+        select: () => query,
+        where: () => query,
+        then: (resolve: (value: unknown[]) => unknown) => Promise.resolve(resolve([])),
+        delete: async () => 1,
+        insert: () => ({ onConflict: () => ({ merge: async () => 1 }) }),
+      };
+      return query;
+    }) as unknown as import('knex').Knex.Transaction;
+    (trx as unknown as { fn: { now: () => string } }).fn = { now: () => 'NOW()' };
     const database = { transaction: async (work: (t: unknown) => Promise<void>) => work(trx) } as unknown as import('knex').Knex;
     return { repository: new KnexGmailHistoricalRepository(database), inserts };
   }
@@ -109,5 +120,33 @@ describe('KnexGmailHistoricalRepository.commitBatch tombstones', () => {
     await repository.commitBatch(mailbox, 'run-1', [{ ...tombstone, threadId: 't', payload: { headers: [] }, isDeleted: false }], []);
     expect(inserts[0].payload).toEqual({ headers: [] });
     expect(inserts[0].is_deleted).toBe(false);
+  });
+
+  it('does not commit raw writes when derived-state maintenance fails', async () => {
+    let committed = false;
+    const trx = ((table: string) => {
+      if (table === 'raw_gmail_messages') return {
+        where: () => ({ first: async () => undefined, update: async () => 1 }),
+        insert: async () => undefined,
+      };
+      if (table === 'google_gmail_message_facts') return {
+        insert: () => ({ onConflict: () => ({ merge: async () => { throw new Error('derived state failure'); } }) }),
+      };
+      throw new Error(`Unexpected table ${table}`);
+    }) as unknown as import('knex').Knex.Transaction;
+    (trx as unknown as { fn: { now: () => string } }).fn = { now: () => 'NOW()' };
+    const database = {
+      transaction: async (work: (t: unknown) => Promise<void>) => {
+        await work(trx);
+        committed = true;
+      },
+    } as unknown as import('knex').Knex;
+    const repository = new KnexGmailHistoricalRepository(database);
+
+    await expect(repository.commitBatch(mailbox, 'run-1', [{
+      providerMessageId: 'm1', threadId: 't1', payload: { labelIds: ['INBOX'], headers: [] },
+      contentMode: 'METADATA', internalDate: new Date(), providerHistoryId: null,
+    }], [])).rejects.toThrow('derived state failure');
+    expect(committed).toBe(false);
   });
 });
