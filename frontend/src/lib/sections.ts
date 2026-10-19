@@ -8,7 +8,7 @@ export const sectionReady = {
   scorecard: false,
   escalations: true,
   redFlags: false,
-  responsiveness: false,
+  responsiveness: true,
   marketing: false,
   watchList: false,
   opportunities: false,
