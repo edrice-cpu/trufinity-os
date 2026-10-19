@@ -3,14 +3,25 @@
 import { useState, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { NavProgressBar } from "./NavProgressBar";
 import { Icon } from "@/components/ui/Icon";
 import type { SessionUser } from "@/lib/auth/session";
 
-export function DashboardShell({ children, user }: { children: ReactNode; user: SessionUser }) {
+export function DashboardShell({
+  children,
+  user,
+  banner,
+}: {
+  children: ReactNode;
+  user: SessionUser;
+  /** Optional Server Component node rendered between the Topbar and page content (e.g. LaceFreshnessBanner). */
+  banner?: ReactNode;
+}) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-background">
+      <NavProgressBar />
       <aside className="hidden w-64 shrink-0 lg:block">
         <div className="fixed h-screen w-64">
           <Sidebar />
@@ -35,6 +46,7 @@ export function DashboardShell({ children, user }: { children: ReactNode; user: 
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenuClick={() => setMobileOpen(true)} user={user} />
+        {banner}
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>

@@ -13,11 +13,34 @@ import type { BusinessCalendarConfig } from '../../src/modules/google/business-c
 
 const UTC_9_17: BusinessCalendarConfig = { timezone: 'UTC', startHour: 9, endHour: 17 };
 
+// Config matching Daniel's confirmed R-01 defaults: 8:00–16:30, UTC timezone proxy.
+const UTC_8_16_30: BusinessCalendarConfig = { timezone: 'UTC', startHour: 8, endHour: 16, endMinute: 30 };
+
+// Emergency fields disabled — keeps all existing tests as regression tests for
+// the standard (non-emergency) path. Emergency detection is fully tested in
+// tests/google/responsiveness-rule-r01-emergency.test.ts.
+const EMERGENCY_DISABLED = {
+  emergencyClassificationEnabled: false,
+  emergencyThresholdMinutes: 25,
+  emergencyConfidenceThreshold: 0.9,
+  emergencyTrustedPromptVersions: ['v2'] as ReadonlyArray<string>,
+};
+
 const R01_CONFIG: R01Config = {
   businessCalendar: UTC_9_17,
   thresholdMinutes: 240,
   workspaceDomain: 'trufinity.ca',
   lookbackDays: 30,
+  ...EMERGENCY_DISABLED,
+};
+
+// R01 config with half-hour close used for endMinute wiring tests (test case 10).
+const R01_CONFIG_8_16_30: R01Config = {
+  businessCalendar: UTC_8_16_30,
+  thresholdMinutes: 240,
+  workspaceDomain: 'trufinity.ca',
+  lookbackDays: 30,
+  ...EMERGENCY_DISABLED,
 };
 
 const d = (iso: string): Date => new Date(iso);
@@ -513,18 +536,21 @@ describe('KnexR01Rule — evaluateMailbox', () => {
     expect(insertedData).not.toHaveProperty('raw_payload');
   });
 
-  it('failure isolation: R-01 error does not affect classification/work-item creation', () => {
-    // This test verifies that R-01 runs independently of the classification path.
-    // Classification creates email_escalation_work_items; R-01 creates google_unanswered_thread_alerts.
-    // They use different tables — neither can fail the other.
+  it('failure isolation: R-01 reads classifications but never writes work-items', () => {
+    // R-01 reads email_classification_results (emergency detection, read-only).
+    // It must never insert into email_classification_results or write work-items.
     const r01Source = require('fs').readFileSync(
       require('path').resolve(__dirname, '../../src/modules/google/responsiveness-rule-r01.ts'),
       'utf8',
     );
-    // R-01 must not reference the classification or work-item tables
+    // R-01 must not write to classification or work-item tables
     expect(r01Source).not.toContain('email_escalation_work_items');
-    expect(r01Source).not.toContain('email_classification_results');
     expect(r01Source).not.toContain('classification_result_id');
+    // R-01 now intentionally reads from email_classification_results for emergency detection.
+    expect(r01Source).toContain('email_classification_results');
+    // It must only SELECT from that table — no INSERT or UPDATE.
+    expect(r01Source).not.toMatch(/email_classification_results['"]?\s*\)\s*\.\s*insert/);
+    expect(r01Source).not.toMatch(/email_classification_results['"]?\s*\)\s*\.\s*update/);
   });
 
   it('existing classification/work-item tests still pass — no interference', () => {
@@ -534,6 +560,75 @@ describe('KnexR01Rule — evaluateMailbox', () => {
     );
     expect(r01Source).not.toContain('google-workspace.service');
     expect(r01Source).not.toContain('classification.repository');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test case 10: R-01 correctly receives and uses endMinute (half-hour close)
+// ---------------------------------------------------------------------------
+
+describe('KnexR01Rule — endMinute wiring (8:00–16:30 config)', () => {
+  it('inbound at 16:20 with now=16:25 → 5 elapsed min < 240 → no alert (endMinute respected)', async () => {
+    // Without endMinute=30, endHour=16 would make 16:20 appear "after hours" →
+    // aging cursor would jump to next morning → 0 elapsed → also no alert, but
+    // for the wrong reason. We verify the correct path: 5 min elapsed, below threshold.
+    let insertCalled = false;
+    const row = {
+      provider_message_id: 'msg-endminute-1',
+      thread_id: 'thread-em-1',
+      internal_date: d('2026-06-15T16:20:00Z'), // 16:20 UTC — within 8:00–16:30 window
+      mailbox_address: MAILBOX,
+      payload: makePayload(['INBOX', 'UNREAD'], 'customer@external.com'),
+    };
+    const fakeDb = makeFakeDb({
+      recentRows: [row],
+      captureInsert: () => { insertCalled = true; },
+    });
+    const rule = new KnexR01Rule(fakeDb);
+    await rule.evaluateMailbox(MAILBOX, R01_CONFIG_8_16_30, d('2026-06-15T16:25:00Z'));
+    expect(insertCalled).toBe(false);
+  });
+
+  it('inbound at 16:20 with now = next day 12:30 → well over 240 min → alert created', async () => {
+    let insertedData: Record<string, unknown> | null = null;
+    // 16:20 on Mon is within 8:00–16:30. Close is 16:30. Remaining on Mon = 10 min.
+    // Tue: 8:00–12:30 = 270 min. Total = 10 + 270 = 280 min > 240 → alert.
+    const row = {
+      provider_message_id: 'msg-endminute-2',
+      thread_id: 'thread-em-2',
+      internal_date: d('2026-06-15T16:20:00Z'),
+      mailbox_address: MAILBOX,
+      payload: makePayload(['INBOX', 'UNREAD'], 'customer@external.com'),
+    };
+    const fakeDb = makeFakeDb({
+      recentRows: [row],
+      captureInsert: (_t, data) => { insertedData = data; },
+    });
+    const rule = new KnexR01Rule(fakeDb);
+    await rule.evaluateMailbox(MAILBOX, R01_CONFIG_8_16_30, d('2026-06-16T12:30:00Z'));
+    expect(insertedData).not.toBeNull();
+    expect(insertedData!['status']).toBe('OPEN');
+    expect(insertedData!['business_minutes_elapsed']).toBe(280);
+  });
+
+  it('inbound at 16:30 (exactly at close) → aging starts next morning → 30 min elapsed at 08:30', async () => {
+    // 16:30 is at-or-after close → nextBusinessMoment advances to next day 08:00.
+    // now = Tuesday 08:30 → 30 elapsed min < 240 → no alert.
+    let insertCalled = false;
+    const row = {
+      provider_message_id: 'msg-endminute-3',
+      thread_id: 'thread-em-3',
+      internal_date: d('2026-06-15T16:30:00Z'), // exactly at the 16:30 close
+      mailbox_address: MAILBOX,
+      payload: makePayload(['INBOX', 'UNREAD'], 'customer@external.com'),
+    };
+    const fakeDb = makeFakeDb({
+      recentRows: [row],
+      captureInsert: () => { insertCalled = true; },
+    });
+    const rule = new KnexR01Rule(fakeDb);
+    await rule.evaluateMailbox(MAILBOX, R01_CONFIG_8_16_30, d('2026-06-16T08:30:00Z'));
+    expect(insertCalled).toBe(false);
   });
 });
 

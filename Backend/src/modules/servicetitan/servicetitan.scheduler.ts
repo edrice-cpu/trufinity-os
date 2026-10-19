@@ -168,6 +168,36 @@ async function reapStuckRuns(): Promise<void> {
   }
 }
 
+// A cron only fires while the process is up at that minute. A dev machine that
+// is off at 01:00, or a server restarted around then, silently skipped the
+// day's sync - on the shared dev DB that left ServiceTitan data frozen at
+// 27 Aug 2026 for weeks. This runs every entity whose last successful sync is
+// older than its cadence allows (or that never synced), one at a time to stay
+// inside ServiceTitan's API rate limits. `force` runs them all regardless.
+const BUSINESS_UNIT_MAX_AGE_HOURS = 8 * 24;
+const STARTUP_CATCH_UP_DELAY_MS = 30_000;
+
+export async function runMissedServiceTitanSyncs(options: { force?: boolean; now?: Date } = {}): Promise<string[]> {
+  const now = options.now ?? new Date();
+  const ran: string[] = [];
+  for (const sync of SCHEDULED_SYNCS) {
+    const maxAgeHours = sync.entityType === 'BusinessUnit' ? BUSINESS_UNIT_MAX_AGE_HOURS : env.SERVICETITAN_CATCH_UP_AFTER_HOURS;
+    const row = (await db(SYNC_RUNS_TABLE)
+      .where({ source_system: SOURCE_SYSTEM.SERVICE_TITAN, entity_type: sync.entityType })
+      .whereIn('status', [SYNC_RUN_STATUS.COMPLETED, SYNC_RUN_STATUS.COMPLETED_WITH_ERRORS])
+      .max('completed_at as last')
+      .first()) as { last: Date | string | null } | undefined;
+    const last = row?.last ? new Date(row.last) : null;
+    const missed = !last || now.getTime() - last.getTime() > maxAgeHours * 3_600_000;
+    if (!options.force && !missed) continue;
+
+    logger.info(`[ServiceTitan] Catching up ${sync.entityType} sync`, { lastSuccessfulSyncAt: last?.toISOString() ?? null, forced: options.force === true });
+    await runScheduledSync(sync);
+    ran.push(sync.entityType);
+  }
+  return ran;
+}
+
 // Registers the ServiceTitan ingestion cron jobs plus the stuck-run reaper.
 // Call once at process startup (see server.ts) - not from app.ts, so
 // importing the Express app in tests doesn't also spin up background cron jobs.
@@ -198,6 +228,15 @@ export function startServiceTitanScheduler(): ScheduledTask[] {
     reapStuckRuns().catch((error) => logger.error('[ServiceTitan] Stuck-run reaper failed', { error: error instanceof Error ? error.message : String(error) })),
   );
   logger.info(`[ServiceTitan] Scheduled stuck-run reaper (cron: ${env.SERVICETITAN_STUCK_RUN_REAPER_CRON})`);
+
+  if (env.SERVICETITAN_CATCH_UP_ON_STARTUP) {
+    // Delayed so startup (migrations, other schedulers) settles first; unref'd
+    // so it never keeps a short-lived process alive.
+    setTimeout(() => {
+      runMissedServiceTitanSyncs().catch((error) =>
+        logger.error('[ServiceTitan] Startup catch-up failed', { error: error instanceof Error ? error.message : String(error) }));
+    }, STARTUP_CATCH_UP_DELAY_MS).unref();
+  }
 
   return [...tasks, reaperTask];
 }

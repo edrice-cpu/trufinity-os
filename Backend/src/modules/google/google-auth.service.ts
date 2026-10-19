@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import { env } from '../../config/env';
-import { resolveGmailMailboxPolicy } from './gmail-policy';
+import { normalizeMailboxAddress, resolveGmailMailboxPolicy } from './gmail-policy';
 import type { GmailContentMode, GmailMailboxConfig } from './types';
 
 export const GOOGLE_ADMIN_DIRECTORY_USERS_READONLY_SCOPE = 'https://www.googleapis.com/auth/admin.directory.user.readonly';
@@ -62,6 +62,37 @@ export interface GoogleGmailClient {
     };
   };
 }
+// Read-only Gmail surface for pulling vendor report attachments (Lace AI's
+// monthly CSV) out of one dedicated report inbox - see getLaceReportGmailClient.
+export interface GmailMessagePart {
+  filename?: string | null;
+  mimeType?: string | null;
+  body?: { attachmentId?: string | null; size?: number | null } | null;
+  parts?: GmailMessagePart[] | null;
+}
+
+export interface GmailReportInboxClient {
+  users: {
+    messages: {
+      list(params: {
+        userId: 'me';
+        q: string;
+        maxResults: number;
+        includeSpamTrash: false;
+        pageToken?: string;
+      }): Promise<{ data: { messages?: { id?: string | null }[]; nextPageToken?: string | null } }>;
+      get(params: {
+        userId: 'me';
+        id: string;
+        format: 'full';
+      }): Promise<{ data: { id?: string | null; internalDate?: string | null; payload?: GmailMessagePart | null } }>;
+      attachments: {
+        get(params: { userId: 'me'; messageId: string; id: string }): Promise<{ data: { data?: string | null; size?: number | null } }>;
+      };
+    };
+  };
+}
+
 export interface GoogleAuthFactory {
   createJwt(options: GoogleJwtOptions): object;
   createAdminClient(auth: object): GoogleDirectoryUsersClient;
@@ -81,6 +112,8 @@ const defaultFactory: GoogleAuthFactory = {
 
 export interface GmailAuthorizationContext {
   client: GoogleGmailClient;
+  /** The underlying JWT auth object; supports explicit authorize() to force token acquisition. */
+  auth: { authorize?: () => Promise<void> };
   mailbox: GmailMailboxConfig;
   subject: string;
   scope: typeof GMAIL_METADATA_SCOPE | typeof GMAIL_READONLY_SCOPE;
@@ -103,10 +136,29 @@ export class GoogleWorkspaceAuthService {
     const auth = this.createJwt(mailbox.normalizedAddress, [scope]);
     return {
       client: this.factory.createGmailClient(auth),
+      auth: auth as { authorize?: () => Promise<void> },
       mailbox,
       subject: mailbox.normalizedAddress,
       scope,
     };
+  }
+
+  /**
+   * Read-only Gmail access to the ONE dedicated vendor-report inbox
+   * (LACE_REPORT_MAILBOX, e.g. lace-report@trufinity.ca) where Lace AI emails
+   * its Monthly Agent Performance Report. Purpose-locked: any other address is
+   * refused, so this never widens the employee-mailbox content policy in
+   * gmail-policy.ts (SPEC-BI-001 6.1). Callers read only CSV attachments of
+   * matching messages; message bodies are never stored or logged.
+   */
+  public getLaceReportGmailClient(mailboxAddress: string): GmailReportInboxClient {
+    const requested = normalizeMailboxAddress(mailboxAddress);
+    const configured = normalizeMailboxAddress(env.LACE_REPORT_MAILBOX);
+    if (!requested || !configured || requested !== configured) {
+      throw new Error('Report-inbox access is only allowed for the configured LACE_REPORT_MAILBOX.');
+    }
+    const auth = this.createJwt(configured, [GMAIL_READONLY_SCOPE]);
+    return this.factory.createGmailClient(auth) as unknown as GmailReportInboxClient;
   }
 
   private scopeFor(contentMode: GmailContentMode): typeof GMAIL_METADATA_SCOPE | typeof GMAIL_READONLY_SCOPE {

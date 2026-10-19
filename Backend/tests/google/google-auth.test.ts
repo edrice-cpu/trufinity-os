@@ -9,6 +9,7 @@ import {
   type GoogleGmailClient,
 } from '../../src/modules/google/google-auth.service';
 import { GoogleWorkspaceDirectoryService } from '../../src/modules/google/workspace-directory.service';
+import { env } from '../../src/config/env';
 
 const config = {
   projectId: 'test-project',
@@ -61,6 +62,30 @@ describe('Google Workspace Domain-Wide Delegation', () => {
     expect(calls.map((call) => call.subject)).toEqual([
       'service@trufinity.ca', 'support@trufinity.ca', 'billing@trufinity.ca', 'finance@trufinity.ca',
     ]);
+  });
+
+  it('gives read-only access to the configured Lace report inbox only', () => {
+    const original = env.LACE_REPORT_MAILBOX;
+    const calls: Array<{ subject: string; scopes: readonly string[] }> = [];
+    const factory: GoogleAuthFactory = {
+      createJwt: (options) => { calls.push({ subject: options.subject, scopes: options.scopes }); return {}; },
+      createAdminClient: () => ({ list: jest.fn() as unknown as GoogleDirectoryUsersClient['list'] }),
+      createGmailClient: () => ({} as GoogleGmailClient),
+    };
+    const service = new GoogleWorkspaceAuthService(config, factory);
+    try {
+      env.LACE_REPORT_MAILBOX = 'lace-report@trufinity.ca';
+      service.getLaceReportGmailClient(' Lace-Report@TruFinity.ca ');
+      expect(calls).toEqual([{ subject: 'lace-report@trufinity.ca', scopes: [GMAIL_READONLY_SCOPE] }]);
+
+      // Any other mailbox - including employee mailboxes - is refused outright.
+      expect(() => service.getLaceReportGmailClient('owner@trufinity.ca')).toThrow('only allowed for the configured LACE_REPORT_MAILBOX');
+      env.LACE_REPORT_MAILBOX = '';
+      expect(() => service.getLaceReportGmailClient('lace-report@trufinity.ca')).toThrow('only allowed for the configured LACE_REPORT_MAILBOX');
+      expect(calls).toHaveLength(1);
+    } finally {
+      env.LACE_REPORT_MAILBOX = original;
+    }
   });
 
   it('does not expose credential values and rejects missing runtime credentials', () => {

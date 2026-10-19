@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/layout/DashboardShell";
+import { LaceFreshnessBanner } from "@/components/lace/LaceFreshnessBanner";
 import { getCurrentUser } from "@/lib/auth/session";
 
 export default async function DashboardGroupLayout({ children }: { children: ReactNode }) {
@@ -8,5 +9,9 @@ export default async function DashboardGroupLayout({ children }: { children: Rea
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  return <DashboardShell user={user}>{children}</DashboardShell>;
+  return (
+    <DashboardShell user={user} banner={<LaceFreshnessBanner />}>
+      {children}
+    </DashboardShell>
+  );
 }

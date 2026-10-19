@@ -4,9 +4,12 @@ import {
   runDryRun,
   runClassify,
   emptyProgress,
+  queryEligibleMessages,
+  classifyGmailFetchError,
   type HistoricalClassifyArgs,
   type HistoricalClassifyDeps,
 } from '../../src/scripts/google-gmail-historical-classify';
+import { EmailClassifierError } from '../../src/modules/google/anthropic-email-classifier';
 
 const validDryRunArgs = [
   '--mailbox', 'service@trufinity.ca',
@@ -15,6 +18,36 @@ const validDryRunArgs = [
 ];
 
 describe('historical classify CLI', () => {
+  describe('sanitized diagnostics and ordering', () => {
+    it('classifies provider failures using only safe metadata', () => {
+      expect(classifyGmailFetchError({ response: { status: 403 }, message: 'secret payload' })).toEqual({
+        category: 'permission_or_scope', status: 403, errorClass: 'ProviderError',
+      });
+      expect(classifyGmailFetchError({ code: 'ECONNRESET', message: 'secret payload' }).category).toBe('network');
+      expect(classifyGmailFetchError(new Error('invalid_grant: secret')).category).toBe('authentication');
+      expect(classifyGmailFetchError(new TypeError('fetch failed')).category).toBe('network');
+      expect(classifyGmailFetchError({ name: 'GaxiosError' }).category).toBe('authentication');
+      // google-auth-library wraps GaxiosError in a plain Error; these must reach 'authentication' not 'provider_unknown'
+      expect(classifyGmailFetchError(new Error('Could not refresh access token.')).category).toBe('authentication');
+      expect(classifyGmailFetchError(new Error('Error fetching access token: unauthorized_client')).category).toBe('authentication');
+      expect(classifyGmailFetchError(new Error('Token has been expired or revoked.')).category).toBe('authentication');
+    });
+
+    it('uses provider message id as a deterministic timestamp tie-breaker', async () => {
+      let sql = '';
+      const fakeDb = Object.assign(jest.fn(() => ({
+        select: jest.fn(() => ({ where: jest.fn(() => ({ first: jest.fn(async () => ({ id: 'mbx-1' })) })) })),
+      })), {
+        raw: jest.fn(async (query: string) => { sql = query; return { rows: [] }; }),
+      }) as any;
+      await queryEligibleMessages({
+        mailbox: 'service@trufinity.ca', from: new Date('2026-07-01'), to: new Date('2026-09-01'),
+        dryRun: true, batchLimit: 10, maxCalls: 10, delayMs: 0, noNotifications: true,
+      }, fakeDb);
+      expect(sql).toContain('ORDER BY r.internal_date ASC, r.provider_message_id ASC');
+    });
+  });
+
   describe('parseArgs', () => {
     it('parses valid arguments', () => {
       const args = parseArgs(validDryRunArgs);
@@ -98,6 +131,15 @@ describe('historical classify CLI', () => {
       expect(args.maxCalls).toBe(500);
       expect(args.delayMs).toBe(200);
       expect(args.dryRun).toBe(false);
+      expect(args.noNotifications).toBe(false);
+    });
+
+    it('parses explicit notification suppression', () => {
+      const args = parseArgs([
+        '--mailbox', 'service@trufinity.ca', '--from', '2026-07-01', '--to', '2026-09-01',
+        '--no-notifications',
+      ]);
+      expect(args.noNotifications).toBe(true);
     });
   });
 
@@ -119,7 +161,7 @@ describe('historical classify CLI', () => {
 
       const args: HistoricalClassifyArgs = {
         mailbox: 'service@trufinity.ca', from: new Date('2026-07-01'), to: new Date('2026-09-01'),
-        dryRun: true, batchLimit: 25, maxCalls: 10, delayMs: 100,
+        dryRun: true, batchLimit: 25, maxCalls: 10, delayMs: 100, noNotifications: false,
       };
 
       const progress = await runDryRun(args, fakeDb);
@@ -150,6 +192,7 @@ describe('historical classify CLI', () => {
             mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
             subject: 'service@trufinity.ca',
             scope: 'https://www.googleapis.com/auth/gmail.readonly',
+            auth: { authorize: jest.fn(async () => {}) },
             client: {
               users: {
                 messages: {
@@ -181,6 +224,7 @@ describe('historical classify CLI', () => {
         notifier: {
           sendNotification: jest.fn(async () => true),
           hasNotificationBeenSent: jest.fn(async () => false),
+          recoverPendingNotifications: jest.fn(async () => 0),
         },
         waitFn: jest.fn(async () => {}),
         ...overrides,
@@ -190,7 +234,7 @@ describe('historical classify CLI', () => {
     function makeArgs(overrides: Partial<HistoricalClassifyArgs> = {}): HistoricalClassifyArgs {
       return {
         mailbox: 'service@trufinity.ca', from: new Date('2026-07-01'), to: new Date('2026-09-01'),
-        dryRun: false, batchLimit: 25, maxCalls: 10, delayMs: 0,
+        dryRun: false, batchLimit: 25, maxCalls: 10, delayMs: 0, noNotifications: false,
         ...overrides,
       };
     }
@@ -200,6 +244,17 @@ describe('historical classify CLI', () => {
       (deps.database as any).raw = jest.fn(async () => ({ rows }));
       return deps;
     }
+
+    it('suppresses notification recovery and delivery when requested', async () => {
+      const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
+      const deps = depsWithEligible(eligible);
+      const progress = await runClassify(makeArgs({ noNotifications: true }), deps);
+      expect(progress.succeeded).toBe(1);
+      expect(progress.notificationsSent).toBe(0);
+      expect(progress.notificationFailures).toBe(0);
+      expect(deps.notifier?.recoverPendingNotifications).not.toHaveBeenCalled();
+      expect(deps.notifier?.sendNotification).not.toHaveBeenCalled();
+    });
 
     it('processes eligible messages with transient Gmail fetch', async () => {
       const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
@@ -342,6 +397,93 @@ describe('historical classify CLI', () => {
       expect(progress.succeeded).toBe(1);
     });
 
+    it('EmailClassifierError uses structured category instead of provider_unknown', async () => {
+      const eligible = [
+        { provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') },
+      ];
+      const events: { stage: string; category: string; errorClass: string }[] = [];
+      const deps = depsWithEligible(eligible, {
+        classifier: {
+          classify: jest.fn(async () => {
+            throw new EmailClassifierError('Response truncated.', 'response_truncated', null);
+          }),
+        },
+        repository: { persist: jest.fn(async () => ({ id: 'cls-1', workItemId: null, duplicate: false })) } as any,
+      });
+      deps.diagnostic = (e) => events.push({ stage: e.stage, category: e.category, errorClass: e.errorClass });
+      const progress = await runClassify(makeArgs(), deps);
+      expect(progress.failed).toBe(1);
+      expect(progress.anthropicFailures).toBe(1);
+      expect(events[0].stage).toBe('anthropic');
+      expect(events[0].category).toBe('response_truncated');
+      expect(events[0].errorClass).toBe('EmailClassifierError');
+    });
+
+    it('isolates an HTTP 400 classifier failure and safely resumes later rows', async () => {
+      const eligible = [
+        { provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') },
+        { provider_message_id: 'm2', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-02') },
+      ];
+      let calls = 0;
+      const deps = depsWithEligible(eligible, {
+        classifier: {
+          classify: jest.fn(async () => {
+            calls += 1;
+            if (calls === 1) throw new EmailClassifierError('Email classifier provider request failed.', 'provider_http_error', 400);
+            return { label: 'none' as const, confidence: 0.5, reason: 'ok' };
+          }),
+        },
+        repository: { persist: jest.fn(async () => ({ id: 'cls-2', workItemId: null, duplicate: false })) } as any,
+      });
+      const progress = await runClassify(makeArgs({ noNotifications: true }), deps);
+      expect(progress.failed).toBe(1);
+      expect(progress.succeeded).toBe(1);
+      expect(progress.failureCategories).toEqual({ provider_http_error: 1 });
+      expect(deps.repository.persist).toHaveBeenCalledTimes(1);
+      expect(deps.notifier.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('opens the HTTP 400 circuit after three consecutive failures without completing the window', async () => {
+      const eligible = Array.from({ length: 5 }, (_, i) => ({
+        provider_message_id: `m${i + 1}`, mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1',
+        internal_date: new Date(`2026-08-${String(i + 1).padStart(2, '0')}`),
+      }));
+      const deps = depsWithEligible(eligible, {
+        classifier: {
+          classify: jest.fn(async () => {
+            throw new EmailClassifierError('Email classifier provider request failed.', 'provider_http_error', 400);
+          }),
+        },
+        repository: { persist: jest.fn(async () => ({ id: 'never', workItemId: null, duplicate: false })) } as any,
+      });
+      const progress = await runClassify(makeArgs({ noNotifications: true }), deps);
+      expect(deps.classifier.classify).toHaveBeenCalledTimes(3);
+      expect(progress.failed).toBe(3);
+      expect(progress.succeeded).toBe(0);
+      expect(progress.failureCategories).toEqual({ provider_http_error: 3 });
+      expect(progress.consecutiveProviderHttp400).toBe(3);
+      expect(progress.stoppedByProviderCircuitBreaker).toBe(true);
+      expect(progress.stoppedByBatchLimit).toBe(false);
+      expect(deps.repository.persist).not.toHaveBeenCalled();
+      expect(deps.notifier.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('non-EmailClassifierError at anthropic stage still uses classifyGmailFetchError', async () => {
+      const eligible = [
+        { provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') },
+      ];
+      const events: { stage: string; category: string }[] = [];
+      const networkErr = Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' });
+      const deps = depsWithEligible(eligible, {
+        classifier: { classify: jest.fn(async () => { throw networkErr; }) },
+        repository: { persist: jest.fn(async () => ({ id: 'cls-1', workItemId: null, duplicate: false })) } as any,
+      });
+      deps.diagnostic = (e) => events.push({ stage: e.stage, category: e.category });
+      await runClassify(makeArgs(), deps);
+      expect(events[0].stage).toBe('anthropic');
+      expect(events[0].category).toBe('network');
+    });
+
     it('Gmail fetch failure is isolated', async () => {
       const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
       const deps = depsWithEligible(eligible, {
@@ -350,6 +492,7 @@ describe('historical classify CLI', () => {
             mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
             subject: 'service@trufinity.ca',
             scope: 'scope',
+            auth: { authorize: jest.fn(async () => {}) },
             client: { users: { messages: { get: jest.fn(async () => ({ data: null })) } } },
           })) as any,
         },
@@ -359,6 +502,75 @@ describe('historical classify CLI', () => {
       expect(progress.attempted).toBe(0);
     });
 
+    it('token acquisition failure is isolated to gmail_token stage and counted as gmailFetchFailures', async () => {
+      const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
+      const events: { stage: string; category: string }[] = [];
+      const deps = depsWithEligible(eligible, {
+        authService: {
+          getGmailAuthorization: jest.fn(() => ({
+            mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
+            subject: 'service@trufinity.ca',
+            scope: 'https://www.googleapis.com/auth/gmail.readonly',
+            auth: { authorize: jest.fn(async () => { throw new Error('Could not refresh access token.'); }) },
+            client: { users: { messages: { get: jest.fn(async () => { throw new Error('should not be reached'); }) } } },
+          })) as any,
+        },
+        diagnostic: (e) => events.push({ stage: e.stage, category: e.category }),
+      });
+      const progress = await runClassify(makeArgs(), deps);
+      expect(progress.gmailFetchFailures).toBe(1);
+      expect(progress.gmailFetchAttempts).toBe(0); // fetch never attempted after token failure
+      expect(progress.failed).toBe(1);
+      expect(progress.attempted).toBe(0);
+      expect(events).toHaveLength(1);
+      expect(events[0].stage).toBe('gmail_token');
+      expect(events[0].category).toBe('authentication');
+    });
+
+    it('emits sanitized Gmail fetch diagnostics without provider payloads', async () => {
+      const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
+      const diagnostic = jest.fn();
+      const deps = depsWithEligible(eligible, {
+        diagnostic,
+        authService: {
+          getGmailAuthorization: jest.fn(() => ({
+            mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
+            subject: 'service@trufinity.ca', scope: 'scope',
+            auth: { authorize: jest.fn(async () => {}) },
+            client: { users: { messages: { get: jest.fn(async () => { throw Object.assign(new Error('secret'), { response: { status: 403 }, code: 'SECRET_CODE' }); }) } } },
+          })) as any,
+        },
+      });
+      const progress = await runClassify(makeArgs({ noNotifications: true }), deps);
+      expect(progress.gmailFetchFailures).toBe(1);
+      expect(progress.failed).toBe(1);
+      expect(progress.failureCategories).toEqual({ permission_or_scope: 1 });
+      expect(diagnostic).toHaveBeenCalledWith({
+        ordinal: 1, stage: 'gmail_fetch', category: 'permission_or_scope', status: 403, errorClass: 'Error',
+      });
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret');
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('SECRET_CODE');
+    });
+
+    it('classifies malformed Gmail responses as normalization failures', async () => {
+      const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
+      const diagnostic = jest.fn();
+      const deps = depsWithEligible(eligible, {
+        diagnostic,
+        authService: {
+          getGmailAuthorization: jest.fn(() => ({
+            mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
+            subject: 'service@trufinity.ca', scope: 'scope',
+            auth: { authorize: jest.fn(async () => {}) },
+            client: { users: { messages: { get: jest.fn(async () => ({ data: { unexpected: 'shape' } })) } } },
+          })) as any,
+        },
+      });
+      const progress = await runClassify(makeArgs({ noNotifications: true }), deps);
+      expect(progress.normalizationFailures).toBe(1);
+      expect(diagnostic).toHaveBeenCalledWith(expect.objectContaining({ stage: 'normalization', category: 'invalid_message_response' }));
+    });
+
     it('outbound message skipped after transient fetch', async () => {
       const eligible = [{ provider_message_id: 'm1', mailbox_address: 'service@trufinity.ca', mailbox_id: 'mbx-1', internal_date: new Date('2026-08-01') }];
       const deps = depsWithEligible(eligible, {
@@ -366,6 +578,7 @@ describe('historical classify CLI', () => {
           getGmailAuthorization: jest.fn(() => ({
             mailbox: { normalizedAddress: 'service@trufinity.ca', contentMode: 'CONTENT' },
             subject: 'service@trufinity.ca', scope: 'scope',
+            auth: { authorize: jest.fn(async () => {}) },
             client: {
               users: { messages: { get: jest.fn(async () => ({
                 data: {

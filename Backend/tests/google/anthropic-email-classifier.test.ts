@@ -1,8 +1,31 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { AnthropicEmailClassifier, EmailClassifierError } from '../../src/modules/google/anthropic-email-classifier';
+import { AnthropicEmailClassifier, EmailClassifierError, validateClassifierConfiguration } from '../../src/modules/google/anthropic-email-classifier';
 
 const input = { subject: 'Synthetic subject', bodyText: 'Synthetic body only.' };
 const config = { model: 'test-model', timeoutMs: 1000, maxRetries: 2, promptVersion: 'test-v1' };
+
+describe('classifier configuration validation', () => {
+  const valid = { enabled: true, provider: 'anthropic', model: 'claude-test', apiKey: 'secret-value', confidenceThreshold: 0.8 };
+
+  test('accepts complete enabled configuration', () => {
+    expect(() => validateClassifierConfiguration(valid)).not.toThrow();
+  });
+
+  test('fails clearly when enabled configuration is incomplete without exposing the key', () => {
+    try {
+      validateClassifierConfiguration({ ...valid, model: '', apiKey: '', confidenceThreshold: undefined });
+      throw new Error('expected validation to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('GMAIL_CLASSIFIER_MODEL, ANTHROPIC_API_KEY, GMAIL_CLASSIFIER_CONFIDENCE_THRESHOLD');
+      expect((error as Error).message).not.toContain('secret-value');
+    }
+  });
+
+  test('does not block startup when classification is disabled', () => {
+    expect(() => validateClassifierConfiguration({ enabled: false, provider: '', model: '', apiKey: '', confidenceThreshold: undefined })).not.toThrow();
+  });
+});
 
 function client(response: unknown, calls: unknown[] = []) {
   return { calls, messages: { create: jest.fn(async (request: unknown) => { calls.push(request); return response; }) } } as any;
@@ -117,23 +140,49 @@ describe('EmailClassifierError granular invalid-output subtypes', () => {
     expect(err.category).toBe('invalid_confidence');
   });
 
-  test('multiline reason → invalid_reason', async () => {
+  test('multiline reason is normalized to single line (not rejected)', async () => {
+    // Haiku 4.5 occasionally emits newlines in reason; reason is diagnostic only so
+    // we normalize instead of rejecting — the classification label and confidence are valid.
     const c = client(goodResponse('{"label":"complaint","confidence":0.9,"reason":"Line one\\nLine two"}'));
-    const err = await new AnthropicEmailClassifier(c, config).classify(input).catch((e) => e) as EmailClassifierError;
-    expect(err.category).toBe('invalid_reason');
+    const result = await new AnthropicEmailClassifier(c, config).classify(input);
+    expect(result.label).toBe('complaint');
+    expect(result.reason).toBe('Line one Line two');
+    expect(result.reason).not.toMatch(/[\r\n]/);
   });
 
-  test('reason exceeding 280 chars → invalid_reason', async () => {
-    const longReason = 'A'.repeat(281);
+  test('reason exceeding 280 chars is truncated to 280 (not rejected)', async () => {
+    // Anthropic structured-output API cannot enforce maxLength server-side; Haiku 4.5
+    // emits longer reasons for complex emails.  Truncation preserves the classification.
+    const longReason = 'A'.repeat(300);
     const c = client(goodResponse(JSON.stringify({ label: 'complaint', confidence: 0.9, reason: longReason })));
-    const err = await new AnthropicEmailClassifier(c, config).classify(input).catch((e) => e) as EmailClassifierError;
-    expect(err.category).toBe('invalid_reason');
+    const result = await new AnthropicEmailClassifier(c, config).classify(input);
+    expect(result.label).toBe('complaint');
+    expect(result.reason.length).toBe(280);
+    expect(result.reason).toBe('A'.repeat(280));
   });
 
   test('empty reason → invalid_reason', async () => {
     const c = client(goodResponse('{"label":"complaint","confidence":0.9,"reason":""}'));
     const err = await new AnthropicEmailClassifier(c, config).classify(input).catch((e) => e) as EmailClassifierError;
     expect(err.category).toBe('invalid_reason');
+  });
+
+  test('whitespace-only reason → invalid_reason', async () => {
+    const c = client(goodResponse('{"label":"complaint","confidence":0.9,"reason":"   "}'));
+    const err = await new AnthropicEmailClassifier(c, config).classify(input).catch((e) => e) as EmailClassifierError;
+    expect(err.category).toBe('invalid_reason');
+  });
+
+  test('reason with leading/trailing whitespace is trimmed', async () => {
+    const c = client(goodResponse('{"label":"none","confidence":0.1,"reason":"  Trimmed reason.  "}'));
+    const result = await new AnthropicEmailClassifier(c, config).classify(input);
+    expect(result.reason).toBe('Trimmed reason.');
+  });
+
+  test('multiline reason with CRLF is collapsed to single line', async () => {
+    const c = client(goodResponse('{"label":"none","confidence":0.1,"reason":"Part A\\r\\nPart B"}'));
+    const result = await new AnthropicEmailClassifier(c, config).classify(input);
+    expect(result.reason).toBe('Part A Part B');
   });
 
   test('response_truncated is not retried', async () => {
@@ -269,6 +318,56 @@ describe('EmailClassifierError diagnostic categories', () => {
     const err = await classifyWith(providerError({ response: { status: 400 } }));
     expect(err.category).toBe('provider_http_error');
     expect(err.providerStatus).toBe(400);
+  });
+
+  test('HTTP 400 exposes only sanitized provider diagnostics', async () => {
+    const err = await classifyWith(providerError({
+      response: {
+        status: 400,
+        data: {
+          error: {
+            type: 'invalid_request_error',
+            code: 'invalid_schema',
+            message: 'JSON schema rejected secret-subject body content',
+          },
+        },
+      },
+    }));
+    expect(err.category).toBe('provider_http_error');
+    expect(err.providerDiagnostic).toEqual({
+      providerType: 'invalid_request_error',
+      providerCode: 'invalid_schema',
+      validationReason: 'invalid_json_schema',
+      parameterName: null,
+      numericLimit: null,
+    });
+    expect(err.message).not.toContain('secret-subject');
+    expect(err.message).not.toContain('body content');
+  });
+
+  test('unwraps the installed SDK APIError envelope and extracts safe limits', async () => {
+    const err = await classifyWith(providerError({
+      status: 400,
+      type: 'invalid_request_error',
+      error: {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'max_tokens must be no greater than 1024',
+        },
+        request_id: 'request-secret-must-not-be-logged',
+      },
+    }));
+    expect(err.category).toBe('provider_http_error');
+    expect(err.providerStatus).toBe(400);
+    expect(err.providerDiagnostic).toEqual({
+      providerType: 'invalid_request_error',
+      providerCode: null,
+      validationReason: 'context_or_token_limit',
+      parameterName: 'max_tokens',
+      numericLimit: 1024,
+    });
+    expect(err.message).not.toContain('request-secret');
   });
 
   test('ECONNRESET code → provider_network_error', async () => {

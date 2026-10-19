@@ -11,23 +11,21 @@ import {
   type InvalidLaceRecord,
 } from './lace-raw.ingestion';
 
-// Natural key = Agent id + Period start + Period end. The export also includes a
-// tenant-level "TOTAL / TENANT" rollup row with a blank Agent id
-// (SAMPLE_AgentPerformanceReport_MONTHLY_*.csv) - that row is kept, not discarded,
-// under a synthetic TENANT_TOTAL id since it's a legitimate distinct fact for a period.
+// Natural key = CSR + Period Start + Period End (the real Monthly Agent
+// Performance Report has no agent id column - see LaceAgentPerformanceRow). A
+// re-sent report for the same CSR and month supersedes the earlier row via
+// is_latest, as everywhere else in the raw layer.
 const AGENT_PERFORMANCE_CONFIG: LaceIngestionConfig = {
   exportType: 'agent_performance',
   rawTable: 'raw_lace_agent_performance',
   s3Prefix: env.LACE_S3_AGENT_PERFORMANCE_PREFIX,
   lockKey: 'trufinity:lace:agent-performance-ingestion',
   extractSourceId: (row) => {
-    const periodStart = row['Period start'];
-    const periodEnd = row['Period end'];
-    if (typeof periodStart !== 'string' || typeof periodEnd !== 'string' || periodStart.trim().length === 0 || periodEnd.trim().length === 0) {
-      return null;
-    }
-    const agentId = typeof row['Agent id'] === 'string' && row['Agent id'].trim().length > 0 ? row['Agent id'].trim() : 'TENANT_TOTAL';
-    return `${agentId}__${periodStart.trim()}__${periodEnd.trim()}`;
+    const csr = row.CSR?.trim();
+    const periodStart = row['Period Start']?.trim();
+    const periodEnd = row['Period End']?.trim();
+    if (!csr || !periodStart || !periodEnd) return null;
+    return `${csr}__${periodStart}__${periodEnd}`;
   },
 };
 

@@ -10,6 +10,7 @@ jest.mock('../../src/config/env', () => ({
     AUTH_PASSWORD_RESET_TTL_MINUTES: 30,
     AUTH_MAX_FAILED_LOGINS: 5,
     AUTH_LOCKOUT_MINUTES: 15,
+    GOOGLE_DASHBOARD_ALLOWED_EMAILS: 'admin@example.test',
     SMTP_HOST: '',
     SMTP_PORT: 587,
     SMTP_SECURE: false,
@@ -29,10 +30,10 @@ jest.mock('../../src/config/env', () => ({
     GMAIL_CLASSIFIER_TIMEOUT_MS: 10000, GMAIL_CLASSIFIER_MAX_RETRIES: 2, GMAIL_CLASSIFIER_PROMPT_VERSION: 'v1',
     SERVICETITAN_CLIENT_ID: '', SERVICETITAN_CLIENT_SECRET: '', SERVICETITAN_APP_KEY: '',
     SERVICETITAN_AUTH_URL: '', SERVICETITAN_BASE_URL: '', SERVICETITAN_TENANT_ID: '',
-    SERVICETITAN_CONNECT_URL: 'https://go.servicetitan.com',
+    SERVICETITAN_CONNECT_URL: 'https://go.servicetitan.com', SERVICETITAN_CATCH_UP_ON_STARTUP: false, SERVICETITAN_CATCH_UP_AFTER_HOURS: 26,
     LACE_S3_BUCKET: '', LACE_S3_REGION: '', LACE_S3_ACCESS_KEY_ID: '', LACE_S3_SECRET_ACCESS_KEY: '',
     LACE_S3_CALL_ANALYSIS_PREFIX: '', LACE_S3_AGENT_PERFORMANCE_PREFIX: '',
-    LACE_CALL_ANALYSIS_CRON: '0 2 * * *', LACE_AGENT_PERFORMANCE_CRON: '0 3 1 * *',
+    LACE_CALL_ANALYSIS_CRON: '0 2 * * *', LACE_AGENT_PERFORMANCE_CRON: '0 3 1 * *', LACE_BOOKING_RATE_RECONCILIATION_TOLERANCE_POINTS: 3, LACE_REPORT_MAILBOX: '', LACE_REPORT_MAILBOX_CRON: '30 3 * * *', LACE_REPORT_GMAIL_QUERY: '', LACE_CALL_ANALYSIS_MAX_AGE_HOURS: 36, LACE_AGENT_PERFORMANCE_MAX_AGE_DAYS: 45, LACE_FRESHNESS_CHECK_CRON: '0 6 * * *', PIPELINE_ALERT_RECIPIENT: undefined,
     LACE_STUCK_RUN_REAPER_CRON: '*/30 * * * *', LACE_STUCK_RUN_THRESHOLD_MINUTES: 60,
     DETECT_D01_BOOKING_RATE_FLOOR_PERCENT: 60, DETECT_D06_OBJECTION_SPIKE_MULTIPLIER: 2,
     DETECT_D06_OBJECTION_MIN_SAMPLE: 3, DETECT_F04_AR_GROWTH_THRESHOLD_PERCENT: 15,
@@ -51,6 +52,7 @@ const mockRequireAuth = (req: Record<string, unknown>, _res: unknown, next: () =
 };
 jest.mock('../../src/modules/auth/auth.middleware', () => ({
   requireAuth: mockRequireAuth,
+  createRequireClientOnly: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   bearerToken: () => '',
   createRequireAuth: () => mockRequireAuth,
 }));
@@ -61,12 +63,19 @@ jest.mock('../../src/modules/auth/auth.service', () => ({
 }));
 
 jest.mock('../../src/modules/google/google-workspace.service');
+jest.mock('../../src/modules/google/responsiveness-rule-r01', () => ({
+  listUnansweredAlerts: jest.fn(),
+  unansweredAlertSummary: jest.fn(),
+}));
 
 import request from 'supertest';
 import app from '../../src/app';
 import { googleWorkspaceService } from '../../src/modules/google/google-workspace.service';
+import { listUnansweredAlerts, unansweredAlertSummary } from '../../src/modules/google/responsiveness-rule-r01';
 
 const mockService = googleWorkspaceService as jest.Mocked<typeof googleWorkspaceService>;
+const mockListUnansweredAlerts = listUnansweredAlerts as jest.MockedFunction<typeof listUnansweredAlerts>;
+const mockUnansweredAlertSummary = unansweredAlertSummary as jest.MockedFunction<typeof unansweredAlertSummary>;
 
 const sampleWorkItem = {
   id: 'a1b2c3d4-0000-0000-0000-000000000001',
@@ -97,6 +106,82 @@ const sampleWorkItem = {
   classifiedAt: new Date('2026-01-01T00:00:00Z'),
   senderFrom: 'Jane Customer <jane@example.com>',
 };
+
+const sampleUnansweredAlert = {
+  id: 'b1b2b3b4-0000-0000-0000-000000000001',
+  mailboxAddress: 'service@trufinity.ca',
+  threadId: 'thread-1',
+  oldestUnansweredMessageId: 'message-1',
+  oldestUnansweredAt: new Date('2026-01-01T00:00:00Z'),
+  thresholdExceededAt: new Date('2026-01-01T04:00:00Z'),
+  businessMinutesElapsed: 240,
+  thresholdMinutes: 240,
+  isEmergency: false,
+  status: 'OPEN' as const,
+  repliedAt: null,
+  createdAt: new Date('2026-01-01T04:00:00Z'),
+  updatedAt: new Date('2026-01-01T04:00:00Z'),
+  gmailThreadUrl: 'https://mail.google.com/mail/u/0/?authuser=service%40trufinity.ca#all/thread-1',
+};
+
+describe('R-01 unanswered reporting endpoints', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('returns paginated metadata without Gmail content fields', async () => {
+    mockListUnansweredAlerts.mockResolvedValue({ page: 1, pageSize: 25, totalCount: 1, data: [sampleUnansweredAlert] });
+
+    const res = await request(app).get('/api/google/reporting/responsiveness/unanswered');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ page: 1, pageSize: 25, totalCount: 1 });
+    expect(res.body.data.data[0]).toMatchObject({ status: 'OPEN', isEmergency: false, gmailThreadUrl: expect.any(String) });
+    expect(res.body.data.data[0]).not.toHaveProperty('subject');
+    expect(res.body.data.data[0]).not.toHaveProperty('body');
+    expect(res.body.data.data[0]).not.toHaveProperty('snippet');
+    expect(res.body.data.data[0]).not.toHaveProperty('html');
+    expect(res.body.data.data[0]).not.toHaveProperty('attachments');
+  });
+
+  it('forwards mailbox, status, classification, date filters and pagination', async () => {
+    mockListUnansweredAlerts.mockResolvedValue({ page: 2, pageSize: 10, totalCount: 0, data: [] });
+
+    await request(app).get('/api/google/reporting/responsiveness/unanswered'
+      + '?mailbox_address=service%40trufinity.ca&status=OPEN&classification=EMERGENCY'
+      + '&from_date=2026-01-01T00:00:00Z&to_date=2026-01-02T00:00:00Z&page=2&page_size=10');
+    expect(mockListUnansweredAlerts).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      mailboxAddress: 'service@trufinity.ca', status: 'OPEN', classification: 'EMERGENCY', page: 2, pageSize: 10,
+      fromDate: expect.any(Date), toDate: expect.any(Date),
+    }));
+  });
+
+  it('rejects invalid date filters before querying', async () => {
+    const res = await request(app).get('/api/google/reporting/responsiveness/unanswered?from_date=invalid');
+    expect(res.status).toBe(400);
+    expect(mockListUnansweredAlerts).not.toHaveBeenCalled();
+  });
+
+  it('returns grouped status and emergency/general summary with shared filters', async () => {
+    mockUnansweredAlertSummary.mockResolvedValue({
+      totalCount: 3,
+      byStatus: { OPEN: 2, REPLIED: 1 },
+      byClassification: { emergency: 1, general: 2 },
+    });
+
+    const res = await request(app).get('/api/google/reporting/responsiveness/unanswered/summary?is_emergency=true');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({
+      totalCount: 3,
+      byStatus: { OPEN: 2, REPLIED: 1 },
+      byClassification: { emergency: 1, general: 2 },
+    });
+    expect(mockUnansweredAlertSummary).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ classification: 'EMERGENCY' }));
+  });
+
+  it('caps list page size at 100', async () => {
+    mockListUnansweredAlerts.mockResolvedValue({ page: 1, pageSize: 100, totalCount: 0, data: [] });
+    await request(app).get('/api/google/reporting/responsiveness/unanswered?page_size=999');
+    expect(mockListUnansweredAlerts).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ pageSize: 100 }));
+  });
+});
 
 describe('GET /api/google/work-items', () => {
   beforeEach(() => { jest.clearAllMocks(); });

@@ -30,9 +30,8 @@ export interface R01Config {
   /** Business-hours calendar to use for elapsed-time calculations. */
   readonly businessCalendar: BusinessCalendarConfig;
   /**
-   * Elapsed business minutes before creating an alert.
-   * Product-confirmed default: requires operator confirmation before production use.
-   * See GOOGLE_R01_THRESHOLD_MINUTES in env.ts.
+   * Elapsed business minutes before creating an alert for non-emergency messages.
+   * Daniel confirmed: 4 business hours = 240 minutes.
    */
   readonly thresholdMinutes: number;
   /**
@@ -47,6 +46,43 @@ export interface R01Config {
    * OPEN alert (those are always re-evaluated).
    */
   readonly lookbackDays: number;
+
+  // -------------------------------------------------------------------------
+  // Emergency classification — Daniel confirmed: 25-minute threshold for
+  // messages automatically detected as ongoing or imminent safety/property
+  // hazards. Reuses persisted email_classification_results; never calls
+  // Anthropic directly from the responsiveness worker.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Kill-switch: when false, emergency threshold logic is skipped entirely and
+   * all messages use thresholdMinutes. Disabled by default until the v2 prompt
+   * and DB migration are deployed together.
+   */
+  readonly emergencyClassificationEnabled: boolean;
+  /**
+   * Business minutes before alerting on a confirmed emergency message.
+   * Daniel confirmed: 25 minutes.
+   */
+  readonly emergencyThresholdMinutes: number;
+  /**
+   * Minimum confidence (0–1) required to treat a classification as a confirmed
+   * emergency. Classifications below this are treated as non-emergency.
+   */
+  readonly emergencyConfidenceThreshold: number;
+  /**
+   * Classifier prompt versions that include the 'emergency' label.
+   * Only classifications produced by these versions are trusted for emergency
+   * detection. This prevents pre-emergency prompt results (v1 and earlier)
+   * from incorrectly confirming that a message is NOT an emergency.
+   *
+   * BACKFILL NOTE: Messages classified before the emergency label was introduced
+   * (prompt_version not in this list) may be genuine emergencies that were
+   * never evaluated as such. A controlled reclassification run (re-classify
+   * messages with the new prompt version) is required before this feature can
+   * be considered fully retroactive.
+   */
+  readonly emergencyTrustedPromptVersions: ReadonlyArray<string>;
 }
 
 export interface UnansweredThreadAlertRow {
@@ -58,11 +94,113 @@ export interface UnansweredThreadAlertRow {
   thresholdExceededAt: Date;
   businessMinutesElapsed: number;
   thresholdMinutes: number;
+  isEmergency: boolean;
   status: 'OPEN' | 'REPLIED';
   repliedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  gmailThreadUrl: string | null;
 }
+
+export type UnansweredAlertStatus = UnansweredThreadAlertRow['status'];
+export type UnansweredAlertClassification = 'EMERGENCY' | 'GENERAL';
+
+export interface UnansweredAlertListFilters {
+  mailboxAddress?: string;
+  status?: UnansweredAlertStatus;
+  classification?: UnansweredAlertClassification;
+  fromDate?: Date;
+  toDate?: Date;
+  page: number;
+  pageSize: number;
+}
+
+export interface UnansweredAlertListResult {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  data: UnansweredThreadAlertRow[];
+}
+
+export interface UnansweredAlertSummary {
+  totalCount: number;
+  byStatus: Record<UnansweredAlertStatus, number>;
+  byClassification: Record<Lowercase<UnansweredAlertClassification>, number>;
+}
+
+const buildUnansweredAlertQuery = (database: Knex, filters: Omit<UnansweredAlertListFilters, 'page' | 'pageSize'>) => {
+  let query = database('google_unanswered_thread_alerts').where((_builder) => true);
+  if (filters.mailboxAddress) query = query.where('mailbox_address', filters.mailboxAddress);
+  if (filters.status) query = query.where('status', filters.status);
+  if (filters.classification) query = query.where('is_emergency', filters.classification === 'EMERGENCY');
+  if (filters.fromDate) query = query.where('threshold_exceeded_at', '>=', filters.fromDate);
+  if (filters.toDate) query = query.where('threshold_exceeded_at', '<=', filters.toDate);
+  return query;
+};
+
+const toUnansweredAlertRow = (raw: Record<string, unknown>): UnansweredThreadAlertRow => {
+  const mailboxAddress = String(raw.mailbox_address ?? '');
+  const threadId = String(raw.thread_id ?? '');
+  return {
+    id: String(raw.id),
+    mailboxAddress,
+    threadId,
+    oldestUnansweredMessageId: String(raw.oldest_unanswered_message_id),
+    oldestUnansweredAt: new Date(raw.oldest_unanswered_at as string),
+    thresholdExceededAt: new Date(raw.threshold_exceeded_at as string),
+    businessMinutesElapsed: Number(raw.business_minutes_elapsed),
+    thresholdMinutes: Number(raw.threshold_minutes),
+    isEmergency: Boolean(raw.is_emergency),
+    status: raw.status as UnansweredAlertStatus,
+    repliedAt: raw.replied_at == null ? null : new Date(raw.replied_at as string),
+    createdAt: new Date(raw.created_at as string),
+    updatedAt: new Date(raw.updated_at as string),
+    gmailThreadUrl: mailboxAddress && threadId
+      ? `https://mail.google.com/mail/u/0/?authuser=${encodeURIComponent(mailboxAddress)}#all/${threadId}`
+      : null,
+  };
+};
+
+export const listUnansweredAlerts = async (
+  database: Knex,
+  filters: UnansweredAlertListFilters,
+): Promise<UnansweredAlertListResult> => {
+  const { page, pageSize, ...queryFilters } = filters;
+  const countRow = await buildUnansweredAlertQuery(database, queryFilters)
+    .count<{ count: string }>({ count: '*' }).first();
+  const rows = await buildUnansweredAlertQuery(database, queryFilters)
+    .select(
+      'id', 'mailbox_address', 'thread_id', 'oldest_unanswered_message_id',
+      'oldest_unanswered_at', 'threshold_exceeded_at', 'business_minutes_elapsed',
+      'threshold_minutes', 'is_emergency', 'status', 'replied_at', 'created_at', 'updated_at',
+    )
+    .orderBy('threshold_exceeded_at', 'desc')
+    .limit(pageSize)
+    .offset((page - 1) * pageSize) as Record<string, unknown>[];
+  return { page, pageSize, totalCount: Number(countRow?.count ?? 0), data: rows.map(toUnansweredAlertRow) };
+};
+
+export const unansweredAlertSummary = async (
+  database: Knex,
+  filters: Omit<UnansweredAlertListFilters, 'page' | 'pageSize'>,
+): Promise<UnansweredAlertSummary> => {
+  const rows = await buildUnansweredAlertQuery(database, filters)
+    .select('status', 'is_emergency')
+    .count<{ count: string }>({ count: '*' })
+    .groupBy('status', 'is_emergency') as Array<{ status: UnansweredAlertStatus; is_emergency: boolean; count: string }>;
+  const summary: UnansweredAlertSummary = {
+    totalCount: 0,
+    byStatus: { OPEN: 0, REPLIED: 0 },
+    byClassification: { emergency: 0, general: 0 },
+  };
+  for (const row of rows) {
+    const count = Number(row.count);
+    summary.totalCount += count;
+    summary.byStatus[row.status] += count;
+    summary.byClassification[row.is_emergency ? 'emergency' : 'general'] += count;
+  }
+  return summary;
+};
 
 interface RawGmailRow {
   provider_message_id: string;
@@ -249,12 +387,23 @@ export class KnexR01Rule implements R01Rule {
       return;
     }
 
+    // Select threshold: emergencies use a shorter window (25 min, Daniel confirmed).
+    // Reads the most recent persisted classification from a trusted prompt version.
+    // Never calls Anthropic from here — classification must already be persisted.
+    const isEmergency = config.emergencyClassificationEnabled
+      ? await this.isEmergencyClassified(mailboxAddress, oldest.providerId, config)
+      : false;
+
+    const thresholdMinutes = isEmergency
+      ? config.emergencyThresholdMinutes
+      : config.thresholdMinutes;
+
     // Compute elapsed business time from the effective start of the pending segment.
     // If the inbound arrived outside business hours, aging starts at the next opening.
     const agingStart = nextBusinessMoment(oldest.internalDate, config.businessCalendar);
     const elapsedMinutes = businessMinutesElapsed(agingStart, now, config.businessCalendar);
 
-    if (elapsedMinutes < config.thresholdMinutes) {
+    if (elapsedMinutes < thresholdMinutes) {
       // Below threshold — no alert yet, and no state to update.
       return;
     }
@@ -266,8 +415,40 @@ export class KnexR01Rule implements R01Rule {
       oldest.providerId,
       oldest.internalDate,
       elapsedMinutes,
-      config.thresholdMinutes,
+      thresholdMinutes,
+      isEmergency,
       now,
+    );
+  }
+
+  /**
+   * Returns true when the most recent trusted-version classification for
+   * `providerMessageId` in `mailboxAddress` is 'emergency' with confidence
+   * at or above `config.emergencyConfidenceThreshold`.
+   *
+   * Reads ONLY from email_classification_results. Never writes to it and
+   * never calls Anthropic.
+   *
+   * Pre-emergency prompt versions (not in emergencyTrustedPromptVersions) are
+   * excluded: if only old results exist, returns false (safe default).
+   */
+  private async isEmergencyClassified(
+    mailboxAddress: string,
+    providerMessageId: string,
+    config: R01Config,
+  ): Promise<boolean> {
+    if (config.emergencyTrustedPromptVersions.length === 0) return false;
+    const row = await this.database('email_classification_results')
+      .select('classification_label', 'confidence')
+      .where({ mailbox_address: mailboxAddress, provider_message_id: providerMessageId })
+      .whereIn('prompt_version', config.emergencyTrustedPromptVersions as string[])
+      .orderBy('classified_at', 'desc')
+      .first() as { classification_label: string; confidence: number } | undefined;
+    return (
+      row !== undefined &&
+      row.classification_label === 'emergency' &&
+      typeof row.confidence === 'number' &&
+      row.confidence >= config.emergencyConfidenceThreshold
     );
   }
 
@@ -278,6 +459,7 @@ export class KnexR01Rule implements R01Rule {
     oldestUnansweredAt: Date,
     elapsedMinutes: number,
     thresholdMinutes: number,
+    isEmergency: boolean,
     now: Date,
   ): Promise<void> {
     await this.database('google_unanswered_thread_alerts')
@@ -289,16 +471,18 @@ export class KnexR01Rule implements R01Rule {
         threshold_exceeded_at: now,
         business_minutes_elapsed: elapsedMinutes,
         threshold_minutes: thresholdMinutes,
+        is_emergency: isEmergency,
         status: 'OPEN',
         replied_at: null,
         created_at: now,
         updated_at: now,
       })
       .onConflict(['mailbox_address', 'thread_id', 'oldest_unanswered_message_id'])
-      // On repeated evaluation: update elapsed time and updated_at only.
+      // On repeated evaluation: update elapsed time and emergency flag only.
       // threshold_exceeded_at is NOT updated — preserves the original detection timestamp.
       .merge({
         business_minutes_elapsed: elapsedMinutes,
+        is_emergency: isEmergency,
         updated_at: now,
       });
   }

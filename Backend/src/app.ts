@@ -12,6 +12,7 @@ import { narrateRouter } from './modules/narrate/narrate.routes';
 import { deliverRouter } from './modules/deliver/deliver.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
 import { serviceTitanReportingRouter } from './modules/reporting/servicetitan-reporting.routes';
+import { laceReportingRouter } from './modules/reporting/lace-reporting.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { integrationsRouter } from './modules/integrations/integrations.routes';
 import { googleRouter } from './modules/google/google.routes';
@@ -52,6 +53,7 @@ app.use('/api/narrate', narrateRouter);
 app.use('/api/brief', deliverRouter);
 app.use('/api/reporting/quickbooks', reportingRouter);
 app.use('/api/reporting/servicetitan', serviceTitanReportingRouter);
+app.use('/api/reporting/lace', laceReportingRouter);
 app.use('/api/google', googleRouter);
 
 // Handle 404

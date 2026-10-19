@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { navItems } from "@/lib/nav";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
+import { LinkPending } from "@/components/ui/LinkPending";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -34,7 +35,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 className={`h-4.5 w-4.5 shrink-0 ${isActive ? "text-teal" : "text-white/40 group-hover:text-white/70"}`}
               />
               <span className="truncate">{item.label}</span>
-              {isActive && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />}
+              {/* ml-auto pushes to right; LinkPending shows spinner while navigating, dot when settled */}
+              <span className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center">
+                <LinkPending className="h-3.5 w-3.5 text-white/60" />
+              </span>
             </Link>
           );
         })}

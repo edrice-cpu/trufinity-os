@@ -43,29 +43,25 @@ export interface LaceCallAnalysisRow {
   'Time received (Local)': string;
 }
 
+// Lace's "Monthly Agent Performance Report" (e.g. report_20261011.csv), as
+// actually delivered: one row per CSR per calendar month, emailed to
+// lace-report@trufinity.ca. Replaces an earlier guessed format (Agent id,
+// Booking rate %, Jobs created, ...) that the real export never had.
+// "Success Ratio" is Lace's booking rate = Booked / Qualified (see
+// lace/booking-rate.ts). Period Start/End carry no timezone; they are read as
+// UTC. A CSR with no calls that month still gets a row, with blanks
+// (e.g. "0,0,,0,,"). Playbook Score and Most Coaching Needed are Lace's CSR
+// coaching output - stored raw only, never surfaced here (SPEC-BI-001 2.2:
+// this system does not grade employees).
 export interface LaceAgentPerformanceRow {
-  'Agent name': string;
-  'Agent id': string;
-  Company: string;
-  Period: string;
-  'Period start': string;
-  'Period end': string;
-  'Total calls': string;
-  'Analyzed calls': string;
-  'Qualified calls': string;
-  'Qualified %': string;
-  'Booked calls': string;
-  'Booking rate %': string;
-  'Target booking rate %': string;
-  'Variance vs target': string;
-  'Qualified & unbooked': string;
-  'Avg playbook score': string;
-  'Avg handle time (sec)': string;
-  'Transferred calls': string;
-  'Transfer rate %': string;
-  'Jobs created': string;
-  'Jobs completed': string;
-  'Jobs cancelled': string;
-  'Invoice subtotal (USD)': string;
-  'Revenue per booked call (USD)': string;
+  CSR: string;
+  'Period Start': string;
+  'Period End': string;
+  'Total Calls': string;
+  'Success Ratio': string;
+  'Cancellation Rate': string;
+  Booked: string;
+  Qualified: string;
+  'Playbook Score': string;
+  'Most Coaching Needed': string;
 }

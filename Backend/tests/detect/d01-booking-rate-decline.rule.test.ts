@@ -15,12 +15,15 @@ const WINDOW: DetectionWindow = {
   baselineEnd: new Date('2099-06-08T00:00:00.000Z'),
 };
 
-function callRow(receivedAt: Date, booked: boolean, csr: string | null = null) {
+// Calls are qualified by default: D-01's rate is booked / qualified (Lace's
+// "Success Ratio" - see src/modules/lace/booking-rate.ts).
+function callRow(receivedAt: Date, booked: boolean, csr: string | null = null, qualified = true) {
   const id = randomUUID();
   return {
     lace_call_id: id,
     call_link: `https://www.lace.ai/app/call-center-all-calls/${id}`,
     booked,
+    qualified,
     csr,
     received_at: receivedAt,
   };
@@ -83,6 +86,35 @@ describe('evaluateBookingRateDecline (D-01)', () => {
     expect(findings).toEqual([]);
   });
 
+  it('divides by qualified calls only, matching the Lace Success Ratio', async () => {
+    const currentDay = new Date('2099-06-12T00:00:00.000Z');
+    // 10 booked of 20 qualified = 50% (below the 60% floor). 100 unqualified calls must NOT
+    // dilute it to 10/120 = 8%, which is what dividing by all calls would report.
+    await db('canonical_lace_calls').insert([
+      ...Array.from({ length: 10 }, () => callRow(currentDay, true)),
+      ...Array.from({ length: 10 }, () => callRow(currentDay, false)),
+      ...Array.from({ length: 100 }, () => callRow(currentDay, false, null, false)),
+    ]);
+
+    const findings = await evaluateBookingRateDecline(WINDOW);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.metricValue).toBeCloseTo(0.5);
+    expect(findings[0]?.details).toMatchObject({ currentBookedCalls: 10, currentQualifiedCalls: 20, currentTotalCalls: 120 });
+  });
+
+  it('does not flag a healthy Lace rate even when most calls are unqualified', async () => {
+    const currentDay = new Date('2099-06-12T00:00:00.000Z');
+    // Princess Suerte, Sept 2026 in Lace's report: 45 booked / 56 qualified = 80%, 215 calls in total.
+    await db('canonical_lace_calls').insert([
+      ...Array.from({ length: 45 }, () => callRow(currentDay, true)),
+      ...Array.from({ length: 11 }, () => callRow(currentDay, false)),
+      ...Array.from({ length: 159 }, () => callRow(currentDay, false, null, false)),
+    ]);
+
+    expect(await evaluateBookingRateDecline(WINDOW)).toEqual([]);
+  });
+
   it('returns no findings when there is no data in either window (nothing to compare)', async () => {
     const findings = await evaluateBookingRateDecline(WINDOW);
     expect(findings).toEqual([]);
@@ -127,7 +159,7 @@ describe('evaluateBookingRateDecline (D-01)', () => {
   it('does not flag a CSR with fewer than the minimum call volume in either window', async () => {
     const baselineDay = new Date('2099-05-20T00:00:00.000Z');
     const currentDay = new Date('2099-06-12T00:00:00.000Z');
-    // Only 3 calls for "Jordan" in the current window (33%) - below the 5-call minimum.
+    // Only 3 qualified calls for "Jordan" in the current window (33%) - below the 5-call minimum.
     await db('canonical_lace_calls').insert([
       ...Array.from({ length: 8 }, () => callRow(baselineDay, true, 'Jordan')),
       ...Array.from({ length: 2 }, () => callRow(baselineDay, false, 'Jordan')),

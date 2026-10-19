@@ -4,6 +4,12 @@ import { logger } from '../../utils/logger';
 import type { GmailMailboxConfig } from './types';
 import { KnexEmailClassificationRepository, type ClassificationPersistenceInput } from './classification.repository';
 import { workItemCorrelationService, type WorkItemCorrelationService } from './work-item-correlation.service';
+import {
+  deleteGmailMessageFact,
+  extractGmailMessageFact,
+  refreshGmailThreadState,
+  upsertGmailMessageFact,
+} from './gmail-thread-state.service';
 
 export interface GmailHistoricalMailbox {
   id: string;
@@ -121,11 +127,14 @@ export class KnexGmailHistoricalRepository implements GmailHistoricalRepository 
     const newWorkItemIds: string[] = [];
 
     await this.database.transaction(async (trx) => {
+      const affectedThreadIds = new Set<string>();
       for (const message of messages) {
         const isDeleted = message.isDeleted ?? false;
         const payload = message.payload ?? (isDeleted ? TOMBSTONE_PAYLOAD : null);
-        const current = await trx('raw_gmail_messages').where({ mailbox_id: mailbox.id, provider_message_id: message.providerMessageId, is_latest: true }).first('payload', 'is_deleted');
+        const current = await trx('raw_gmail_messages').where({ mailbox_id: mailbox.id, provider_message_id: message.providerMessageId, is_latest: true }).first('payload', 'is_deleted', 'thread_id');
         if (current && current.is_deleted === isDeleted && stableJson(current.payload) === stableJson(payload)) continue;
+        if (typeof current?.thread_id === 'string' && current.thread_id !== '') affectedThreadIds.add(current.thread_id);
+        if (message.threadId !== '') affectedThreadIds.add(message.threadId);
         await trx('raw_gmail_messages').where({ mailbox_id: mailbox.id, provider_message_id: message.providerMessageId, is_latest: true }).update({ is_latest: false });
         await trx('raw_gmail_messages').insert({
           mailbox_id: mailbox.id,
@@ -140,8 +149,22 @@ export class KnexGmailHistoricalRepository implements GmailHistoricalRepository 
           is_latest: true,
           sync_run_id: syncRunId,
         });
+        if (isDeleted) {
+          await deleteGmailMessageFact(trx, mailbox.id, message.providerMessageId);
+        } else {
+          await upsertGmailMessageFact(trx, extractGmailMessageFact({
+            mailboxId: mailbox.id,
+            mailboxAddress: mailbox.normalizedMailboxAddress,
+            providerMessageId: message.providerMessageId,
+            threadId: message.threadId,
+            internalDate: message.internalDate,
+            payload,
+            isDeleted,
+          }));
+        }
         persisted += 1;
       }
+      await refreshGmailThreadState(trx, mailbox.id, affectedThreadIds);
       if (errors.length > 0) {
         await trx('sync_errors').insert(errors.map((error) => ({
           sync_run_id: syncRunId,
